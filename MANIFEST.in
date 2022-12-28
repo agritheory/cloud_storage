@@ -1,0 +1,18 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include cloud_storage *.css
+recursive-include cloud_storage *.csv
+recursive-include cloud_storage *.html
+recursive-include cloud_storage *.ico
+recursive-include cloud_storage *.js
+recursive-include cloud_storage *.json
+recursive-include cloud_storage *.md
+recursive-include cloud_storage *.png
+recursive-include cloud_storage *.py
+recursive-include cloud_storage *.svg
+recursive-include cloud_storage *.txt
+recursive-exclude cloud_storage *.pyc
