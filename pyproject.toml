@@ -7,6 +7,11 @@ description = "Frappe App for integrating with cloud storage applications"
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
+dependencies = [
+    "boto3~=1.26.38",
+    "botocore~=1.29.38",
+    "python-magic~=0.4.27",
+]
 
 [build-system]
 requires = ["flit_core >=3.4,<4"]

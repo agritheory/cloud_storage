@@ -2,9 +2,9 @@ from . import __version__ as app_version
 
 app_name = "cloud_storage"
 app_title = "Cloud Storage"
-app_publisher = "Agritheory"
+app_publisher = "AgriTheory"
 app_description = "Frappe App for integrating with cloud storage applications"
-app_email = "developers@agritheory.dev"
+app_email = "support@agritheory.com"
 app_license = "MIT"
 
 # Includes in <head>
@@ -94,9 +94,7 @@ app_license = "MIT"
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {"File": "cloud_storage.cloud_storage.overrides.file.CustomFile"}
 
 # Document Events
 # ---------------
@@ -185,3 +183,8 @@ app_license = "MIT"
 # auth_hooks = [
 # 	"cloud_storage.auth.validate"
 # ]
+
+# Cloud Storage / S3 protocol
+# --------------------------------
+write_file = "cloud_storage.cloud_storage.overrides.file.write_file"
+delete_file_data_content = "cloud_storage.cloud_storage.overrides.file.delete_file"
