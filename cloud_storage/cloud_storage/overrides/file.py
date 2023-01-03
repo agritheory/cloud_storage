@@ -1,7 +1,5 @@
-import os
 import re
 import types
-from urllib.parse import unquote
 
 import frappe
 from boto3.exceptions import S3UploadFailedError
@@ -9,7 +7,6 @@ from boto3.session import Session
 from botocore.exceptions import ClientError
 from frappe import _
 from frappe.core.doctype.file.file import File
-from frappe.utils import cint, get_files_path
 from magic import from_buffer
 
 
@@ -51,32 +48,11 @@ class CustomFile(File):
 
 		super().on_trash()
 
-	def validate_url(self):
-		if self.flags.cloud_storage:
+	def validate(self):
+		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 
-		if not self.file_url or self.file_url.startswith(("http://", "https://")):
-			# TODO: figure out which function this should point to
-			# if not self.flags.ignore_file_validate:
-			# 	self.validate_file()
-			return
-
-		# Probably an invalid web URL
-		if not self.file_url.startswith(("/files/", "/private/files/")):
-			frappe.throw(_("URL must start with http:// or https://"), title=_("Invalid URL"))
-
-		# Ensure correct formatting and type
-		self.file_url = unquote(self.file_url)
-		self.is_private = cint(self.is_private)
-
-		self.handle_is_private_changed()
-
-		base_path = os.path.realpath(get_files_path(is_private=self.is_private))
-		if not os.path.realpath(self.get_full_path()).startswith(base_path):
-			frappe.throw(
-				msg=_("The File URL you've entered is incorrect"),
-				title=_("Invalid File URL"),
-			)
+		super().validate()
 
 
 def strip_special_chars(file_name: str):
@@ -86,41 +62,84 @@ def strip_special_chars(file_name: str):
 
 @frappe.whitelist()
 def get_cloud_storage_client():
-	session = Session()
-	cloud_storage_conf = frappe.conf.cloud_storage_settings
-	if not cloud_storage_conf:
-		frappe.throw(
-			msg=_("Please setup cloud storage settings in your site configuration file"),
-			title=_("Cloud Storage not configured"),
-		)
+	validate_config()
 
-	client = session.client(
-		"s3",
-		region_name=cloud_storage_conf.get("region", ""),
-		endpoint_url=cloud_storage_conf.get("endpoint_url", ""),
-		aws_access_key_id=cloud_storage_conf.get("access_key", ""),
-		aws_secret_access_key=cloud_storage_conf.get("secret", ""),
+	config: dict = frappe.conf.cloud_storage_settings
+	session = Session(
+		aws_access_key_id=config.get("access_key"),
+		aws_secret_access_key=config.get("secret"),
+		region_name=config.get("region"),
 	)
 
-	client.bucket = cloud_storage_conf.get("bucket", "")
-	client.folder = cloud_storage_conf.get("folder", None)
-	client.expiration = cloud_storage_conf.get("expiration", 120)
+	client = session.client("s3", endpoint_url=config.get("endpoint_url"))
+	client.bucket = config.get("bucket")
+	client.folder = config.get("folder", None)
+	client.expiration = config.get("expiration", 120)
 	client.get_presigned_url = types.MethodType(get_presigned_url, client)
 	return client
 
 
+def validate_config():
+	config: dict = frappe.conf.cloud_storage_settings
+
+	if not config:
+		frappe.throw(
+			msg=_("Please setup cloud storage settings in your site configuration file"),
+			title=_("Cloud storage not configured"),
+		)
+
+	if not config.get("endpoint_url"):
+		frappe.throw(
+			msg=_("Please setup endpoint_url in your site configuration file"),
+			title=_("Cloud storage endpoint not configured"),
+		)
+
+	if not config.get("access_key"):
+		frappe.throw(
+			msg=_("Please setup access_key in your site configuration file"),
+			title=_("Cloud storage access key not configured"),
+		)
+
+	if not config.get("secret"):
+		frappe.throw(
+			msg=_("Please setup secret in your site configuration file"),
+			title=_("Cloud storage secret not configured"),
+		)
+
+	if not config.get("region"):
+		frappe.throw(
+			msg=_("Please setup region in your site configuration file"),
+			title=_("Cloud storage region not configured"),
+		)
+
+	if not config.get("bucket"):
+		frappe.throw(
+			msg=_("Please setup bucket in your site configuration file"),
+			title=_("Cloud storage bucket not configured"),
+		)
+
+
 def get_presigned_url(client, key: str):
 	return client.generate_presigned_url(
-		"get_object", Params={"Bucket": client.bucket, "Key": key}, ExpiresIn=120
+		ClientMethod="get_object", Params={"Bucket": client.bucket, "Key": key}, ExpiresIn=120
 	)
 
 
 def upload_file(file: File):
 	client = get_cloud_storage_client()
-	parent_doctype = file.attached_to_doctype if file.attached_to_doctype else "No Doctype"
-	path = f"{client.folder}/{parent_doctype}/{file.attached_to_name or ''}/{file.file_name or ''}"
+	parent_doctype = file.attached_to_doctype or "No Doctype"
+
+	fragments = [
+		client.folder,
+		parent_doctype,
+		file.attached_to_name,
+		file.file_name,
+	]
+	valid_fragments = filter(None, fragments)
+	path = "/".join(valid_fragments)
+
 	file.file_url = get_file_url(path)
-	content_type = from_buffer(file.content, mime=True)
+	content_type = file.content_type or from_buffer(file.content, mime=True)
 
 	try:
 		client.put_object(Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type)
@@ -172,7 +191,7 @@ def delete_file(file: File, **kwargs):
 			except ClientError:
 				frappe.throw(_("Access denied: Could not delete file"))
 			except Exception as e:
-				frappe.log_error(e, "Cloud Storage Error: Cloud not delete file")
+				frappe.log_error(str(e), "Cloud Storage Error: Cloud not delete file")
 
 	return file
 
