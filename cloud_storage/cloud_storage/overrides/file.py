@@ -127,17 +127,7 @@ def get_presigned_url(client, key: str):
 
 def upload_file(file: File):
 	client = get_cloud_storage_client()
-	parent_doctype = file.attached_to_doctype or "No Doctype"
-
-	fragments = [
-		client.folder,
-		parent_doctype,
-		file.attached_to_name,
-		file.file_name,
-	]
-	valid_fragments = filter(None, fragments)
-	path = "/".join(valid_fragments)
-
+	path = get_file_path(file, client.folder)
 	file.file_url = get_file_url(path)
 	content_type = file.content_type or from_buffer(file.content, mime=True)
 
@@ -149,6 +139,21 @@ def upload_file(file: File):
 		frappe.log_error("File Upload Error", e)
 
 	return file
+
+
+def get_file_path(file: File, folder: str | None = None):
+	parent_doctype = file.attached_to_doctype or "No Doctype"
+
+	fragments = [
+		folder,
+		parent_doctype,
+		file.attached_to_name,
+		file.file_name,
+	]
+
+	valid_fragments = filter(None, fragments)
+	path = "/".join(valid_fragments)
+	return path
 
 
 @frappe.whitelist()
