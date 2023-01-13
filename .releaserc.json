@@ -1,0 +1,14 @@
+{
+	"branch": "version-14",
+	"repositoryUrl": "https://github.com/AgriTheory/cloud_storage",
+	"plugins": [
+		"@semantic-release/commit-analyzer",
+		"@semantic-release/release-notes-generator",
+		[
+			"@semantic-release/github",
+			{
+				"successComment": false
+			}
+		]
+	]
+}

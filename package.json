@@ -1,10 +1,5 @@
 {
   "dependencies": {
     "madr": "^3.0.0"
-  },
-  "release": {
-    "branches": [
-      "version-14"
-    ]
   }
 }
