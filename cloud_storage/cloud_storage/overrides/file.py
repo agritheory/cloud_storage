@@ -11,7 +11,7 @@ from magic import from_buffer
 
 
 class CustomFile(File):
-	def has_permission(self, ptype: str = None, user: str = None) -> bool:
+	def has_permission(self, ptype: str | None = None, user: str | None = None) -> bool:
 		has_access = False
 		user = frappe.session.user if not user else user
 
@@ -151,7 +151,7 @@ def get_file_path(file: File, folder: str | None = None):
 		file.file_name,
 	]
 
-	valid_fragments = filter(None, fragments)
+	valid_fragments: list[str] = list(filter(None, fragments))
 	path = "/".join(valid_fragments)
 	return path
 

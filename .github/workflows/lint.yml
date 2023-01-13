@@ -10,8 +10,31 @@ env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
+  mypy:
+    needs: [ py_json_merge ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 2
+
+      - name: Setup Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.10'
+
+      - name: Install mypy
+        run: pip install mypy
+
+      - name: Run mypy
+        uses: sasanquaneuf/mypy-github-action@releases/v1
+        with:
+          checkName: 'mypy'
+
   prettier:
-    needs: [ validate_py_json_merge ]
+    needs: [ py_json_merge ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,8 +48,8 @@ jobs:
         with:
           commit_message: "style: prettify code"
 
-  diff:
-    needs: [ validate_py_json_merge ]
+  json_diff:
+    needs: [ py_json_merge ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -90,7 +113,7 @@ jobs:
       - name: Diff table
         run: python3 fsjd/frappe_schema_json_diff.py base/mrd.txt head/acmr.txt 1
 
-  validate_py_json_merge:
+  py_json_merge:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
