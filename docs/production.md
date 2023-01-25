@@ -20,31 +20,22 @@ cd {{ bench name }}
 bench new-site {{ site name }} --force --db-name {{ site name }}
 ```
 
-3. Download the ERPNext app
-```shell
-# Version 13
-bench get-app erpnext --branch version-13
-
-# Version 14
-bench get-app erpnext --branch version-14
-```
-
-4. Download the Cloud Storage application
+3. Download the Cloud Storage application
 ```shell
 bench get-app cloud_storage git@github.com:agritheory/cloud_storage.git
 ```
 
-5. Install the apps to your site
+4. Install the app to your site
 ```shell
-bench --site {{site name}} install-app erpnext cloud_storage
+bench --site {{site name}} install-app cloud_storage
 
-# Optional: Check that all apps installed on your site
+# Optional: Check that the app installed on your site
 bench --site {{ site name }} list-apps
 ```
 
-6. Make sure to configure your S3 instance to access your files. You can do this by setting the permissions defined in the [configuration guide](configuration.md).
+5. Make sure to configure your S3 instance to access your files. You can do this by setting the permissions defined in the [configuration guide](configuration.md).
 
-7. Once everything is set up, launch your bench.
+6. Once everything is set up, launch your bench.
 ```shell
 bench start
 ```
