@@ -1,6 +1,6 @@
 # Cloud Storage Site Configuration
 
-The following documentation shows how to setup some common cloud storage providers:
+The following documentation shows how to set up some common cloud storage providers:
 
 - [Amazon Web Services S3](aws-s3.md)
 - [DigitalOcean Spaces](digitalocean-spaces.md)

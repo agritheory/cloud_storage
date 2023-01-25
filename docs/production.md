@@ -1,4 +1,4 @@
-# Cloud Storage Developer Setup
+# Cloud Storage Production Setup
 
 Before you begin, make sure that your server's Python version is:
 - Latest 3.8 for Frappe's version 13
@@ -44,7 +44,7 @@ bench --site {{ site name }} list-apps
 
 6. Make sure to configure your S3 instance to access your files. You can do this by setting the permissions defined in the [configuration guide](configuration.md).
 
-7. Once everything is setup, launch your bench
+7. Once everything is set up, launch your bench.
 ```shell
 bench start
 ```
