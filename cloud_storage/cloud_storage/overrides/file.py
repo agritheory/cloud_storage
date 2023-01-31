@@ -1,5 +1,6 @@
 import re
 import types
+from urllib.parse import unquote, urlencode
 
 import frappe
 from boto3.exceptions import S3UploadFailedError
@@ -7,6 +8,7 @@ from boto3.session import Session
 from botocore.exceptions import ClientError
 from frappe import _
 from frappe.core.doctype.file.file import File
+from frappe.utils import sbool
 from magic import from_buffer
 
 
@@ -76,6 +78,7 @@ def get_cloud_storage_client():
 	client.folder = config.get("folder", None)
 	client.expiration = config.get("expiration", 120)
 	client.get_presigned_url = types.MethodType(get_presigned_url, client)
+	client.get_file = types.MethodType(get_file, client)
 	return client
 
 
@@ -125,10 +128,25 @@ def get_presigned_url(client, key: str):
 	)
 
 
+def get_file(client, bucket: str, key: str):
+	from tempfile import NamedTemporaryFile
+
+	with NamedTemporaryFile() as tmp:
+		try:
+			client.download_fileobj(bucket, key, tmp)
+			return tmp
+		except ClientError as e:
+			if e.response["Error"]["Code"] == "404":
+				frappe.throw(_("File not found in the cloud storage"))
+			else:
+				frappe.log_error("File Download Error", e)
+				frappe.throw(_("File Download Failed. Please try again."))
+
+
 def upload_file(file: File):
 	client = get_cloud_storage_client()
 	path = get_file_path(file, client.folder)
-	file.file_url = get_file_url(path)
+	file.file_url = get_file_url(path, private=bool(file.is_private))
 	content_type = file.content_type or from_buffer(file.content, mime=True)
 
 	try:
@@ -201,17 +219,31 @@ def delete_file(file: File, **kwargs):
 	return file
 
 
-def get_file_url(path: str):
-	return f"/api/method/cloud_storage.cloud_storage.overrides.file.retrieve?key={path}"
+def get_file_url(path: str, private: bool = True):
+	params = {"key": path, "private": private}
+
+	return f"/api/method/cloud_storage.cloud_storage.overrides.file.retrieve?{urlencode(params)}"
 
 
 @frappe.whitelist(allow_guest=True)
-def retrieve(key: str):
+def retrieve(key: str, private: str):
 	if key:
+		key = unquote(key)
 		client = get_cloud_storage_client()
-		signed_url = client.get_presigned_url(key)
-		frappe.local.response["type"] = "redirect"
-		frappe.local.response["location"] = signed_url
-		return signed_url
+
+		if sbool(private):
+			signed_url = client.get_presigned_url(key)
+			frappe.local.response["type"] = "redirect"
+			frappe.local.response["location"] = signed_url
+			return signed_url
+		else:
+			# TODO: figure out how to store the file data and show to the user
+			temp_file = client.get_file(client.bucket, key)
+			if temp_file:
+				frappe.local.response["type"] = "redirect"
+				frappe.local.response["location"] = temp_file.name
+				return temp_file.name
+			else:
+				frappe.throw(_("File not found in the cloud storage"))
 
 	frappe.local.response["body"] = "Key not found"
