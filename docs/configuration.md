@@ -3,6 +3,7 @@
 The following documentation shows how to set up some common cloud storage providers:
 
 - [Amazon Web Services S3](aws-s3.md)
+- [Backblaze B2](backblaze-b2.md)
 - [DigitalOcean Spaces](digitalocean-spaces.md)
 
 ## App Configuration
