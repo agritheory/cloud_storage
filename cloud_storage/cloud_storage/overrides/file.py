@@ -5,8 +5,8 @@ import frappe
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.exceptions import ClientError
-from frappe import _
-from frappe.core.doctype.file.file import File
+from frappe import _, DoesNotExistError
+from frappe.core.doctype.file.file import File, URL_PREFIXES
 from magic import from_buffer
 
 
@@ -51,9 +51,15 @@ class CustomFile(File):
 	def validate(self):
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
-
 		super().validate()
 
+	@property
+	def is_remote_file(self):
+		if self.s3_key:
+			return True
+		if self.file_url:
+			return self.file_url.startswith(URL_PREFIXES)
+		return not self.content
 
 def strip_special_chars(file_name: str):
 	regex = re.compile("[^0-9a-zA-Z._-]")
@@ -120,8 +126,15 @@ def validate_config():
 
 
 def get_presigned_url(client, key: str):
+	file = frappe.get_value('File', {'s3_key': key}, ['name', 'is_private'])
+	if not file:
+		raise DoesNotExistError
+	expiration = client.expiration if file.is_private else None
+	if file.is_private:
+		frappe.has_permission(doctype='File', ptype='read', doc=file.name, user=frappe.session.user)
+
 	return client.generate_presigned_url(
-		ClientMethod="get_object", Params={"Bucket": client.bucket, "Key": key}, ExpiresIn=120
+		ClientMethod="get_object", Params={"Bucket": client.bucket, "Key": key}, ExpiresIn=expiration
 	)
 
 
@@ -130,14 +143,13 @@ def upload_file(file: File):
 	path = get_file_path(file, client.folder)
 	file.file_url = get_file_url(path)
 	content_type = file.content_type or from_buffer(file.content, mime=True)
-
 	try:
 		client.put_object(Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type)
 	except S3UploadFailedError:
 		frappe.throw(_("File Upload Failed. Please try again."))
 	except Exception as e:
 		frappe.log_error("File Upload Error", e)
-
+	file.s3_key = path
 	return file
 
 

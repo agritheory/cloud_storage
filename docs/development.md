@@ -7,9 +7,6 @@ Before you begin, make sure that your Python version is:
 1. First, set up a new bench and substitute a path to the python version to use. These instructions use [pyenv](https://github.com/pyenv/pyenv) for managing environments.
 
 ```shell
-# Version 13
-bench init --frappe-branch version-13 {{ bench name }} --python ~/.pyenv/versions/3.8.12/bin/python3
-
 # Version 14
 bench init --frappe-branch version-14 {{ bench name }} --python ~/.pyenv/versions/3.10.3/bin/python3
 ```
