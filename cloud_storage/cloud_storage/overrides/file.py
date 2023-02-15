@@ -39,7 +39,7 @@ class CustomFile(File):
 
 		return has_access
 
-	def on_trash(self):
+	def on_trash(self) -> None:
 		user_roles = frappe.get_roles(frappe.session.user)
 		if (
 			frappe.session.user != "Administrator"
@@ -53,13 +53,13 @@ class CustomFile(File):
 
 		super().on_trash()
 
-	def validate(self):
+	def validate(self) -> None:
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		super().validate()
 
 	@property
-	def is_remote_file(self):
+	def is_remote_file(self) -> bool:
 		if self.s3_key:
 			return True
 		if self.file_url:
@@ -68,7 +68,7 @@ class CustomFile(File):
 
 
 @frappe.whitelist()
-def get_sharing_link(docname, reset=False):
+def get_sharing_link(docname: str, reset: bool=False) -> str:
 	doc = frappe.get_doc('File', docname)
 	if doc.is_private:
 		frappe.has_permission(doctype='File', ptype='share', doc=doc.name, user=frappe.session.user)
@@ -78,14 +78,13 @@ def get_sharing_link(docname, reset=False):
 	return f"{get_url()}/api/method/share?key={doc.sharing_link}"
 
 
-
-def strip_special_chars(file_name: str):
+def strip_special_chars(file_name: str) -> str:
 	regex = re.compile("[^0-9a-zA-Z._-]")
 	return regex.sub("", file_name)
 
 
 @frappe.whitelist()
-def get_cloud_storage_client():
+def get_cloud_storage_client() -> Session:
 	validate_config()
 
 	config: dict = frappe.conf.cloud_storage_settings
@@ -104,7 +103,7 @@ def get_cloud_storage_client():
 	return client
 
 
-def validate_config():
+def validate_config() -> None:
 	config: dict = frappe.conf.cloud_storage_settings
 
 	if not config:
@@ -158,7 +157,7 @@ def get_presigned_url(client, key: str):
 	)
 
 
-def get_sharing_url(client, key: str):
+def get_sharing_url(client, key: str) -> str:
 	file = frappe.get_value('File', {'sharing_link': key}, ['name', 's3_key'], as_dict=True)
 	if not file:
 		raise DoesNotExistError(frappe._('The file you are looking for is not available'))
@@ -169,7 +168,7 @@ def get_sharing_url(client, key: str):
 	)
 
 
-def upload_file(file: File):
+def upload_file(file: File) -> str:
 	client = get_cloud_storage_client()
 	path = get_file_path(file, client.folder)
 	file.file_url = get_file_url(path)
@@ -184,7 +183,7 @@ def upload_file(file: File):
 	return file
 
 
-def get_file_path(file: File, folder: str | None = None):
+def get_file_path(file: File, folder: str | None = None) -> str:
 	parent_doctype = file.attached_to_doctype or "No Doctype"
 
 	fragments = [
@@ -200,7 +199,7 @@ def get_file_path(file: File, folder: str | None = None):
 
 
 @frappe.whitelist()
-def write_file(file: File):
+def write_file(file: File) -> str:
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -220,7 +219,7 @@ def write_file(file: File):
 
 
 @frappe.whitelist()
-def delete_file(file: File, **kwargs):
+def delete_file(file: File, **kwargs) -> str:
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -249,7 +248,7 @@ def get_file_url(path: str):
 
 
 @frappe.whitelist(allow_guest=True)
-def retrieve(key: str):
+def retrieve(key: str) -> str:
 	if key:
 		client = get_cloud_storage_client()
 		signed_url = client.get_presigned_url(key)
@@ -261,7 +260,7 @@ def retrieve(key: str):
 
 
 @frappe.whitelist(allow_guest=True)
-def share(key: str):
+def share(key: str) -> str:
 	if key:
 		client = get_cloud_storage_client()
 		signed_url = client.get_sharing_url(key)

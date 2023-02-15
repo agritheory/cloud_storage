@@ -71,7 +71,7 @@ class TestFile(FrappeTestCase):
 		assert client.return_value.put_object.call_count == 3
 		self.assertEqual(
 			file.file_url,
-			"/api/method/cloud_storage.cloud_storage.overrides.file.retrieve?key=/path/to/s3/bucket/location",
+			"/api/method/retrieve?key=/path/to/s3/bucket/location",
 		)
 
 	@patch("cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client")
@@ -102,16 +102,16 @@ class TestFile(FrappeTestCase):
 		delete_file(file)
 		assert client.return_value.delete_object.call_count == 0
 
-		file.file_url = "/api/method/cloud_storage.cloud_storage.overrides.file.retrieve"
+		file.file_url = "/api/method/retrieve"
 		delete_file(file)
 		assert client.return_value.delete_object.call_count == 0
 
-		file.file_url = "/api/method/cloud_storage.cloud_storage.overrides.file.retrieve?key="
+		file.file_url = "/api/method/retrieve?key="
 		delete_file(file)
 		assert client.return_value.delete_object.call_count == 0
 
 		# test general exception
-		file.file_url = "/api/method/cloud_storage.cloud_storage.overrides.file.retrieve?key=/path/to/s3/bucket/location"
+		file.file_url = "/api/method/retrieve?key=/path/to/s3/bucket/location"
 		client.return_value.delete_object.side_effect = TypeError
 		delete_file(file)
 		assert client.return_value.delete_object.call_count == 1
