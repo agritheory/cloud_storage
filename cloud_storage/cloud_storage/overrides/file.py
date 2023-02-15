@@ -248,24 +248,22 @@ def get_file_url(path: str):
 
 
 @frappe.whitelist(allow_guest=True)
-def retrieve(key: str) -> str:
+def retrieve(key: str) -> None:
 	if key:
 		client = get_cloud_storage_client()
 		signed_url = client.get_presigned_url(key)
 		frappe.local.response["type"] = "redirect"
 		frappe.local.response["location"] = signed_url
-		return signed_url
 
 	frappe.local.response["body"] = "Key not found"
 
 
 @frappe.whitelist(allow_guest=True)
-def share(key: str) -> str:
+def share(key: str) -> None:
 	if key:
 		client = get_cloud_storage_client()
 		signed_url = client.get_sharing_url(key)
 		frappe.local.response["type"] = "redirect"
 		frappe.local.response["location"] = signed_url
-		return signed_url
 
 	frappe.local.response["body"] = "Key not found"

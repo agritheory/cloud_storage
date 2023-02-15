@@ -1,11 +1,9 @@
-"""
-Configuration for docs
-"""
+from frappe import _dict
 
-# source_link = "https://github.com/[org_name]/cloud_storage"
-# headline = "App that does everything"
-# sub_heading = "Yes, you got that right the first time, everything"
+source_link = "https://github.com/agritheory/cloud_storage"
+headline = "Cloud Storage"
+sub_heading = "Save your files in the cloud"
 
-
-def get_context(context):
+# type: ignore
+def get_context(context) -> _dict:
 	context.brand_html = "Cloud Storage"
