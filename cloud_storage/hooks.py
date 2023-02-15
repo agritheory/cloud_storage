@@ -29,7 +29,9 @@ app_include_js = ["cloud_storage.bundle.js"]
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {
+	"File" : "public/js/file.js"
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -136,11 +138,12 @@ override_doctype_class = {"File": "cloud_storage.cloud_storage.overrides.file.Cu
 
 # Overriding Methods
 # ------------------------------
-#
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "cloud_storage.event.get_events"
-# }
-#
+
+override_whitelisted_methods = {
+	"retrieve": "cloud_storage.cloud_storage.overrides.file.retrieve",
+	"share": "cloud_storage.cloud_storage.overrides.file.share",
+}
+
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
