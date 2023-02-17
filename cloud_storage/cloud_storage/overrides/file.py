@@ -6,10 +6,12 @@ import frappe
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.exceptions import ClientError
-from frappe import _, DoesNotExistError
+from frappe import DoesNotExistError, _
+from frappe.core.doctype.file.file import URL_PREFIXES, File
 from frappe.utils import get_url
-from frappe.core.doctype.file.file import File, URL_PREFIXES
 from magic import from_buffer
+
+FILE_URL = "/api/method/retrieve?key={path}"
 
 
 class CustomFile(File):
@@ -32,8 +34,8 @@ class CustomFile(File):
 			):
 				has_access = True
 		# elif True:
-			# Check "shared with"  including parent 'folder' to allow access
-			# ...
+		# Check "shared with"  including parent 'folder' to allow access
+		# ...
 		else:
 			has_access = frappe.has_permission("File", "read", user=user)
 
@@ -68,13 +70,14 @@ class CustomFile(File):
 
 
 @frappe.whitelist()
-def get_sharing_link(docname: str, reset: bool=False) -> str:
-	doc = frappe.get_doc('File', docname)
+def get_sharing_link(docname: str, reset: bool = False) -> str:
+	doc = frappe.get_doc("File", docname)
 	if doc.is_private:
-		frappe.has_permission(doctype='File', ptype='share', doc=doc.name, user=frappe.session.user)
+		frappe.has_permission(
+			doctype="File", ptype="share", doc=doc.name, user=frappe.session.user, throw=True
+		)
 	if reset or not doc.sharing_link:
-		doc.sharing_link = str(uuid.uuid4().int>>64)
-		doc.db_set('sharing_link', doc.sharing_link)
+		doc.db_set("sharing_link", str(uuid.uuid4().int >> 64))
 	return f"{get_url()}/api/method/share?key={doc.sharing_link}"
 
 
@@ -84,7 +87,7 @@ def strip_special_chars(file_name: str) -> str:
 
 
 @frappe.whitelist()
-def get_cloud_storage_client() -> Session:
+def get_cloud_storage_client():
 	validate_config()
 
 	config: dict = frappe.conf.cloud_storage_settings
@@ -144,13 +147,15 @@ def validate_config() -> None:
 
 
 def get_presigned_url(client, key: str):
-	file = frappe.get_value('File', {'s3_key': key}, ['name', 'is_private'], as_dict=True)
+	file = frappe.get_value("File", {"s3_key": key}, ["name", "is_private"], as_dict=True)
 	if not file:
-		raise DoesNotExistError(frappe._('The file you are looking for is not available'))
+		raise DoesNotExistError(frappe._("The file you are looking for is not available"))
 	expiration = client.expiration if file.is_private else None
-	
+
 	if file.is_private:
-		frappe.has_permission(doctype='File', ptype='read', doc=file.name, user=frappe.session.user)
+		frappe.has_permission(
+			doctype="File", ptype="read", doc=file.name, user=frappe.session.user, throw=True
+		)
 
 	return client.generate_presigned_url(
 		ClientMethod="get_object", Params={"Bucket": client.bucket, "Key": key}, ExpiresIn=expiration
@@ -158,20 +163,19 @@ def get_presigned_url(client, key: str):
 
 
 def get_sharing_url(client, key: str) -> str:
-	file = frappe.get_value('File', {'sharing_link': key}, ['name', 's3_key'], as_dict=True)
+	file = frappe.get_value("File", {"sharing_link": key}, ["name", "s3_key"], as_dict=True)
 	if not file:
-		raise DoesNotExistError(frappe._('The file you are looking for is not available'))
-	expiration = client.expiration if file.is_private else None
-	
+		raise DoesNotExistError(frappe._("The file you are looking for is not available"))
+
 	return client.generate_presigned_url(
-		ClientMethod="get_object", Params={"Bucket": client.bucket, "Key": file.s3_key}, ExpiresIn=expiration
+		ClientMethod="get_object", Params={"Bucket": client.bucket, "Key": file.s3_key}
 	)
 
 
-def upload_file(file: File) -> str:
+def upload_file(file: File) -> File:
 	client = get_cloud_storage_client()
 	path = get_file_path(file, client.folder)
-	file.file_url = get_file_url(path)
+	file.file_url = FILE_URL.format(path=path)
 	content_type = file.content_type or from_buffer(file.content, mime=True)
 	try:
 		client.put_object(Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type)
@@ -199,7 +203,7 @@ def get_file_path(file: File, folder: str | None = None) -> str:
 
 
 @frappe.whitelist()
-def write_file(file: File) -> str:
+def write_file(file: File) -> File:
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -219,7 +223,7 @@ def write_file(file: File) -> str:
 
 
 @frappe.whitelist()
-def delete_file(file: File, **kwargs) -> str:
+def delete_file(file: File, **kwargs) -> File:
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -241,10 +245,6 @@ def delete_file(file: File, **kwargs) -> str:
 				frappe.log_error(str(e), "Cloud Storage Error: Cloud not delete file")
 
 	return file
-
-
-def get_file_url(path: str):
-	return f"/api/method/retrieve?key={path}"
 
 
 @frappe.whitelist(allow_guest=True)
