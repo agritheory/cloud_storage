@@ -5,7 +5,12 @@ from boto3.exceptions import S3UploadFailedError
 from botocore.exceptions import ClientError
 from frappe.tests.utils import FrappeTestCase
 
-from cloud_storage.cloud_storage.overrides.file import delete_file, upload_file, write_file
+from cloud_storage.cloud_storage.overrides.file import (
+	CustomFile,
+	delete_file,
+	upload_file,
+	write_file,
+)
 
 
 class TestFile(FrappeTestCase):
@@ -129,3 +134,47 @@ class TestFile(FrappeTestCase):
 		client.return_value.delete_object.side_effect = True
 		delete_file(file)
 		assert client.return_value.delete_object.call_count == 3
+
+	@patch("frappe.db.exists")
+	@patch("frappe.has_permission")
+	@patch("frappe.get_doc")
+	def test_file_permission(self, get_doc, has_permission, db_exists):
+		# test file access for owner
+		file = CustomFile({"doctype": "File", "owner": "Administrator"})
+		self.assertEqual(file.has_permission(), True)
+		self.assertEqual(file.has_permission(user="Administrator"), True)
+
+		# test file access for non-owner user
+		has_permission.return_value = True
+		assert file.has_permission(user="Administrator") is True
+		assert file.has_permission(user="support@agritheory.dev") is True
+		has_permission.return_value = False
+		assert file.has_permission(user="Administrator") is True
+		assert file.has_permission(user="support@agritheory.dev") is False
+
+		# test file access for attached doctypes
+		file = CustomFile(
+			{
+				"doctype": "File",
+				"owner": "Administrator",
+				"attached_to_doctype": "Sales Order",
+				"attached_to_name": "SO-0001",
+			}
+		)
+
+		get_doc.return_value = MagicMock()
+		get_doc.return_value.has_permission.return_value = True
+		assert file.has_permission(user="Administrator") is True
+		assert file.has_permission(user="support@agritheory.dev") is True
+		get_doc.return_value.has_permission.return_value = False
+		assert file.has_permission(user="Administrator") is True
+		assert file.has_permission(user="support@agritheory.dev") is False
+
+		# test file access for custom user permissions
+		get_doc.return_value = {}
+		db_exists.return_value = True
+		assert file.has_permission(user="Administrator") is True
+		assert file.has_permission(user="support@agritheory.dev") is True
+		db_exists.return_value = False
+		assert file.has_permission(user="Administrator") is True
+		assert file.has_permission(user="support@agritheory.dev") is False
