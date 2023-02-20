@@ -191,3 +191,8 @@ override_whitelisted_methods = {
 # --------------------------------
 write_file = "cloud_storage.cloud_storage.overrides.file.write_file"
 delete_file_data_content = "cloud_storage.cloud_storage.overrides.file.delete_file"
+
+
+# After Migrate
+# --------------------------------
+after_migrate = 'cloud_storage.customize.load_customizations'
