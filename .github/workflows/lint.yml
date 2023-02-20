@@ -44,7 +44,7 @@ jobs:
           fetch-depth: 2
 
       - name: Prettify code
-        uses: creyD/prettier_action@v4.2
+        uses: creyD/prettier_action@v4.3
         with:
           commit_message: "style: prettify code"
 
@@ -108,7 +108,7 @@ jobs:
         run: |
           pip install rich
           pip install json_source_map
-          git clone --depth 1 https://gist.github.com/74017707b676c3ce947528fb00dd46d0.git fsjd
+          git clone --depth 1 https://gist.github.com/3eea518743067f1b971114f1a2016f69 fsjd
 
       - name: Diff table
         run: python3 fsjd/frappe_schema_json_diff.py base/mrd.txt head/acmr.txt 1
