@@ -1,3 +1,4 @@
+import json
 import re
 import types
 import uuid
@@ -8,6 +9,7 @@ from boto3.session import Session
 from botocore.exceptions import ClientError
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import URL_PREFIXES, File
+from frappe.permissions import has_user_permission
 from frappe.utils import get_url
 from magic import from_buffer
 
@@ -22,22 +24,15 @@ class CustomFile(File):
 		if self.owner == user:
 			has_access = True
 		elif self.attached_to_doctype and self.attached_to_name:
-			if reference_doc := frappe.get_doc(self.attached_to_doctype, self.attached_to_name):
-				has_access = reference_doc.has_permission()
-			elif frappe.db.exists(
-				{
-					"doctype": "User Permission",
-					"allow": self.attached_to_doctype,
-					"for_value": self.attached_to_name,
-					"user": user,
-				}
-			):
-				has_access = True
+			reference_doc = frappe.get_doc(self.attached_to_doctype, self.attached_to_name)
+			has_access = reference_doc.has_permission()
+			if not has_access:
+				has_access = has_user_permission(self, user)
 		# elif True:
 		# Check "shared with"  including parent 'folder' to allow access
 		# ...
 		else:
-			has_access = frappe.has_permission("File", "read", user=user)
+			has_access = bool(frappe.has_permission("File", "read", user=user))
 
 		return has_access
 
@@ -70,7 +65,9 @@ class CustomFile(File):
 
 
 @frappe.whitelist()
-def get_sharing_link(docname: str, reset: bool = False) -> str:
+def get_sharing_link(docname: str, reset: str | bool | None = None) -> str:
+	if isinstance(reset, str):
+		reset = json.loads(reset)
 	doc = frappe.get_doc("File", docname)
 	if doc.is_private:
 		frappe.has_permission(
@@ -158,7 +155,9 @@ def get_presigned_url(client, key: str):
 		)
 
 	return client.generate_presigned_url(
-		ClientMethod="get_object", Params={"Bucket": client.bucket, "Key": key}, ExpiresIn=expiration
+		ClientMethod="get_object",
+		Params={"Bucket": client.bucket, "Key": key},
+		ExpiresIn=expiration,
 	)
 
 

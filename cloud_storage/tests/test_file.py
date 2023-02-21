@@ -135,10 +135,10 @@ class TestFile(FrappeTestCase):
 		delete_file(file)
 		assert client.return_value.delete_object.call_count == 3
 
-	@patch("frappe.db.exists")
+	@patch("cloud_storage.cloud_storage.overrides.file.has_user_permission")
 	@patch("frappe.has_permission")
 	@patch("frappe.get_doc")
-	def test_file_permission(self, get_doc, has_permission, db_exists):
+	def test_file_permission(self, get_doc, has_permission, has_user_permission):
 		# test file access for owner
 		file = CustomFile({"doctype": "File", "owner": "Administrator"})
 		self.assertEqual(file.has_permission(), True)
@@ -162,19 +162,17 @@ class TestFile(FrappeTestCase):
 			}
 		)
 
+		# test file access for doc permissions
 		get_doc.return_value = MagicMock()
 		get_doc.return_value.has_permission.return_value = True
 		assert file.has_permission(user="Administrator") is True
 		assert file.has_permission(user="support@agritheory.dev") is True
-		get_doc.return_value.has_permission.return_value = False
-		assert file.has_permission(user="Administrator") is True
-		assert file.has_permission(user="support@agritheory.dev") is False
 
 		# test file access for custom user permissions
-		get_doc.return_value = {}
-		db_exists.return_value = True
+		get_doc.return_value.has_permission.return_value = False
+		has_user_permission.return_value = True
 		assert file.has_permission(user="Administrator") is True
 		assert file.has_permission(user="support@agritheory.dev") is True
-		db_exists.return_value = False
+		has_user_permission.return_value = False
 		assert file.has_permission(user="Administrator") is True
 		assert file.has_permission(user="support@agritheory.dev") is False
