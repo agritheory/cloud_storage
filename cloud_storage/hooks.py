@@ -29,9 +29,7 @@ app_include_js = ["cloud_storage.bundle.js"]
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {
-	"File" : "public/js/file.js"
-}
+doctype_js = {"File": "public/js/file.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -195,4 +193,4 @@ delete_file_data_content = "cloud_storage.cloud_storage.overrides.file.delete_fi
 
 # After Migrate
 # --------------------------------
-after_migrate = 'cloud_storage.customize.load_customizations'
+after_migrate = "cloud_storage.customize.load_customizations"
