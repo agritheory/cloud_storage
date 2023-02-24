@@ -1,12 +1,12 @@
-## [DigitalOcean Spaces](https://www.digitalocean.com/products/spaces)
+# [DigitalOcean Spaces](https://www.digitalocean.com/products/spaces)
 
-### Regions
+## Regions
 
 The following documentation shows the available region names for DigitalOcean:
 
 - [DigitalOcean Spaces Regions](https://docs.digitalocean.com/products/platform/availability-matrix/)
 
-### Credentials and Buckets
+## Credentials and Buckets
 
 The following documentation shows how to generate access credentials and S3-compatible buckets in DigitalOcean Spaces:
 

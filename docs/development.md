@@ -44,7 +44,22 @@ bench --site {{site name}} add-to-hosts
 
 7. Make sure to configure your S3 instance to access your files. You can do this by setting the permissions defined in the [configuration guide](configuration.md).
 
-8. Once everything is set up, launch your bench.
+8. Install the libmagic C library. The [documentation for the python-magic package](https://pypi.org/project/python-magic/) (a Cloud Storage dependency) notes that the package is a wrapper around the libmagic C library, which needs to be installed on the system as well.
+```shell
+# Debian/Ubuntu
+sudo apt-get install libmagic1
+
+# Windows
+pip install python-magic-bin
+
+# OSX Homebrew
+brew install libmagic
+
+# OSX macports
+port install file
+```
+
+9. Once everything is set up, launch your bench.
 ```shell
 bench start
 ```

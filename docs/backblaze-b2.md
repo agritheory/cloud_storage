@@ -1,6 +1,6 @@
-## [Backblaze B2](https://www.backblaze.com/b2/cloud-storage.html)
+# [Backblaze B2](https://www.backblaze.com/b2/cloud-storage.html)
 
-### Credentials
+## Credentials
 
 In order to generate access keys for Backblaze B2 with the following steps:
 
