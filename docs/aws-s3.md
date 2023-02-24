@@ -1,12 +1,12 @@
-## [Amazon Web Services S3 Setup](https://aws.amazon.com/s3/)
+# [Amazon Web Services S3 Setup](https://aws.amazon.com/s3/)
 
-### Regions
+## Regions
 
 The following documentation shows the available region names for AWS:
 
 - [Amazon Web Services S3 Regions](https://docs.aws.amazon.com/general/latest/gr/s3.html)
 
-### Credentials
+## Credentials
 
 In order to generate access keys for your Amazon Web Services S3 instance, go through the following steps:
 
@@ -21,7 +21,7 @@ In order to generate access keys for your Amazon Web Services S3 instance, go th
     - Secret access key: MihgBbJs5yQrKsKNSj/TEqa3q2ZOtaEXAMPLEKEY
 - Once you have the access key and secret access key, store them in a secure location.
 
-### Buckets
+## Buckets
 
 The following documentation shows how to generate buckets in Amazon's S3 service:
 
