@@ -6,9 +6,9 @@ Cloud Storage can be configured to work with a variety of cloud storage provider
 
 See the following pages for detailed instructions on Cloud Storage installation and configuration:
 
-- [Cloud Storage Developer Environment Installation](development.md)
-- [Cloud Storage Production Environment Installation](production.md)
-- [Cloud Storage Configuration](configuration.md)
+- [Cloud Storage Developer Environment Installation](./development.md)
+- [Cloud Storage Production Environment Installation](./production.md)
+- [Cloud Storage Configuration](./configuration.md)
 
 ## Cloud Storage Quick Start
 
