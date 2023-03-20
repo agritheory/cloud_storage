@@ -11,8 +11,10 @@ from botocore.exceptions import ClientError
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
 from frappe.permissions import has_user_permission
+from frappe.query_builder import DocType
 from frappe.utils import get_url
 from magic import from_buffer
+
 
 FILE_URL = "/api/method/retrieve?key={path}"
 
@@ -53,7 +55,22 @@ class CustomFile(File):
 
 		super().on_trash()
 
+	def associate_files(self):
+		associated_doc = frappe.db.get_value('File', {'content_hash': self.content_hash, 'name': ['!=', self.name], 'is_folder': False})
+		print(self.name, associated_doc, self.attached_to_doctype, self.attached_to_name)
+		if associated_doc:
+			self = frappe.get_doc('File', associated_doc)
+		
+		print(self.attached_to_doctype, self.attached_to_name)
+		# check to see if self.attached_to_doctype and name already exists in child table
+		# check to see if new attached_to_doctype and name already exists in child table
+		self.append('file_association', {
+			'link_doctype': self.attached_to_doctype,
+			'link_name': self.attached_to_name
+		})
+
 	def validate(self) -> None:
+		self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		if not self.is_remote_file:
