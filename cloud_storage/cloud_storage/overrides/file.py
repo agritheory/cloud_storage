@@ -2,18 +2,21 @@ import json
 import re
 import types
 import uuid
+import os
 
 import frappe
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.exceptions import ClientError
 from frappe import DoesNotExistError, _
-from frappe.core.doctype.file.file import URL_PREFIXES, File
+from frappe.core.doctype.file.file import File, get_files_path
 from frappe.permissions import has_user_permission
 from frappe.utils import get_url
 from magic import from_buffer
 
 FILE_URL = "/api/method/retrieve?key={path}"
+
+URL_PREFIXES = ("http://", "https://", '/api/method/retrieve')
 
 
 class CustomFile(File):
@@ -53,15 +56,62 @@ class CustomFile(File):
 	def validate(self) -> None:
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
-		super().validate()
+		if not self.is_remote_file:
+			super().validate()
+		else:
+			self.validate_file_url()
 
 	@property
 	def is_remote_file(self) -> bool:
-		if self.s3_key:
-			return True
 		if self.file_url:
 			return self.file_url.startswith(URL_PREFIXES)
 		return not self.content
+
+	def get_full_path(self):
+		"""Returns file path from given file name"""
+
+		file_path = self.file_url or self.file_name
+
+		site_url = get_url()
+		if "/files/" in file_path and file_path.startswith(site_url):
+			file_path = file_path.split(site_url, 1)[1]
+
+		if "/" not in file_path:
+			if self.is_private:
+				file_path = f"/private/files/{file_path}"
+			else:
+				file_path = f"/files/{file_path}"
+
+		if file_path.startswith("/private/files/"):
+			file_path = get_files_path(*file_path.split("/private/files/", 1)[1].split("/"), is_private=1)
+
+		elif file_path.startswith("/files/"):
+			file_path = get_files_path(*file_path.split("/files/", 1)[1].split("/"))
+
+		elif file_path.startswith(URL_PREFIXES):
+			pass
+
+		elif not self.file_url:
+			frappe.throw(_("There is some problem with the file url: {0}").format(file_path))
+
+		if not is_safe_path(file_path):
+			frappe.throw(_("Cannot access file path {0}").format(file_path))
+
+		if os.path.sep in self.file_name:
+			frappe.throw(_("File name cannot have {0}").format(os.path.sep))
+
+		return file_path
+
+def is_safe_path(path: str) -> bool:
+	if path.startswith(URL_PREFIXES):
+		return True
+
+	basedir = frappe.get_site_path()
+	# ref: https://docs.python.org/3/library/os.path.html#os.path.commonpath
+	matchpath = os.path.abspath(path)
+	basedir = os.path.abspath(basedir)
+
+	return basedir == os.path.commonpath((basedir, matchpath))
 
 
 @frappe.whitelist()
