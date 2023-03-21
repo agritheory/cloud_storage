@@ -18,7 +18,6 @@ from magic import from_buffer
 
 
 FILE_URL = "/api/method/retrieve?key={path}"
-
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
 
@@ -119,6 +118,7 @@ class CustomFile(File):
 				frappe.delete_doc("File Association", row.name)
 				del row
 		self.save()
+
 
 	@property
 	def is_remote_file(self) -> bool:
