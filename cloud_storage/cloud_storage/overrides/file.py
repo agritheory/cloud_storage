@@ -19,7 +19,7 @@ from magic import from_buffer
 
 FILE_URL = "/api/method/retrieve?key={path}"
 
-URL_PREFIXES = ("http://", "https://", '/api/method/retrieve')
+URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
 
 class CustomFile(File):
@@ -61,27 +61,33 @@ class CustomFile(File):
 		super().on_trash()
 
 	def associate_files(self) -> File:
-		if not self.content_hash and '/api/method/retrieve' in self.file_url:
-			associated_doc = frappe.get_value('File', {'file_url': self.file_url}, 'name')
+		if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
+			associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 		else:
-			associated_doc = frappe.db.get_value('File', {'content_hash': self.content_hash, 'name': ['!=', self.name], 'is_folder': False})
+			associated_doc = frappe.db.get_value(
+				"File",
+				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False} # type: ignore
+			)
 
 		if associated_doc:
-			existing_file = frappe.get_doc('File', associated_doc)
+			existing_file = frappe.get_doc("File", associated_doc)
 			existing_file.attached_to_doctype = self.attached_to_doctype
 			existing_file.attached_to_name = self.attached_to_name
 			self.content_hash = existing_file.content_hash
 			self = existing_file
 
-		existing_attachment = list(filter(
-			lambda row: row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name,
-			self.file_association,
-		))
+		existing_attachment = list(
+			filter(
+				lambda row: row.link_doctype == self.attached_to_doctype
+				and row.link_name == self.attached_to_name,
+				self.file_association,
+			)
+		)
 		if not existing_attachment:
-			self.append('file_association', {
-				'link_doctype': self.attached_to_doctype,
-				'link_name': self.attached_to_name
-			})
+			self.append(
+				"file_association",
+				{"link_doctype": self.attached_to_doctype, "link_name": self.attached_to_name},
+			)
 		if associated_doc:
 			self.save()
 
@@ -96,10 +102,12 @@ class CustomFile(File):
 
 	def after_insert(self) -> File:
 		if self.attached_to_doctype and self.attached_to_name and not self.file_association:
-			if not self.content_hash and '/api/method/retrieve' in self.file_url:
-				associated_doc = frappe.get_value('File', {'file_url': self.file_url}, 'name')
+			if not self.content_hash and "/api/method/retrieve" in self.file_url:
+				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 			else:
-				associated_doc = frappe.db.get_value('File', {'content_hash': self.content_hash, 'name': ['!=', self.name], 'is_folder': False})
+				associated_doc = frappe.db.get_value(
+					"File", {"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False}
+				)
 			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
@@ -108,10 +116,9 @@ class CustomFile(File):
 			return
 		for row in self.file_association:
 			if row.link_doctype == dt and row.link_name == dn:
-				frappe.delete_doc('File Association', row.name)
+				frappe.delete_doc("File Association", row.name)
 				del row
 		self.save()
-
 
 	@property
 	def is_remote_file(self) -> bool:
@@ -153,6 +160,7 @@ class CustomFile(File):
 			frappe.throw(_("File name cannot have {0}").format(os.path.sep))
 
 		return file_path
+
 
 def is_safe_path(path: str) -> bool:
 	if path.startswith(URL_PREFIXES):
@@ -377,5 +385,5 @@ def remove_attach():
 	dn = frappe.form_dict.get("dn")
 	if not all([fid, dt, dn]):
 		return
-	doc = frappe.get_doc('File', fid)
+	doc = frappe.get_doc("File", fid)
 	doc.remove_file_association(dt, dn)

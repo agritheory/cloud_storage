@@ -19,7 +19,7 @@ bench new-site {{ site name }} --force --db-name {{ site name }}
 
 3. Download the Cloud Storage application
 ```shell
-bench get-app cloud_storage git@github.com:agritheory/cloud_storage.git
+bench get-app cloud_storage https://github.com/agritheory/cloud_storage.git
 ```
 
 4. Install the app to your site
@@ -62,4 +62,10 @@ port install file
 9. Once everything is set up, launch your bench.
 ```shell
 bench start
+```
+
+10. To run `mypy` locally:
+```shell
+source env/bin/activate
+mypy ./apps/cloud_storage/cloud_storage --ignore-missing-imports
 ```
