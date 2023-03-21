@@ -372,10 +372,10 @@ def share(key: str) -> None:
 
 @frappe.whitelist(methods=["DELETE", "POST"])
 def remove_attach():
-	print(frappe.form_dict)
 	fid = frappe.form_dict.get("fid")
 	dt = frappe.form_dict.get("dt")
 	dn = frappe.form_dict.get("dn")
+	if not all([fid, dt, dn]):
+		return
 	doc = frappe.get_doc('File', fid)
 	doc.remove_file_association(dt, dn)
-	print(len(doc.file_association))
