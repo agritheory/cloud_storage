@@ -13,6 +13,7 @@ from frappe.core.doctype.file.file import File, get_files_path
 from frappe.permissions import has_user_permission
 from frappe.query_builder import DocType
 from frappe.utils import get_url
+from frappe.model.rename_doc import rename_doc
 from magic import from_buffer
 
 
@@ -52,22 +53,37 @@ class CustomFile(File):
 				_("This file is attached to a submitted document and cannot be deleted"),
 				frappe.PermissionError,
 			)
-
+		if len(self.file_association) > 1:
+			frappe.throw(
+				_("This file is attached to multiple documents and cannot be deleted"),
+				frappe.PermissionError,
+			)
 		super().on_trash()
 
-	def associate_files(self):
-		associated_doc = frappe.db.get_value('File', {'content_hash': self.content_hash, 'name': ['!=', self.name], 'is_folder': False})
-		print(self.name, associated_doc, self.attached_to_doctype, self.attached_to_name)
+	def associate_files(self) -> File:
+		if not self.content_hash and '/api/method/retrieve' in self.file_url:
+			associated_doc = frappe.get_value('File', {'file_url': self.file_url}, 'name')
+		else:
+			associated_doc = frappe.db.get_value('File', {'content_hash': self.content_hash, 'name': ['!=', self.name], 'is_folder': False})
+
 		if associated_doc:
-			self = frappe.get_doc('File', associated_doc)
-		
-		print(self.attached_to_doctype, self.attached_to_name)
-		# check to see if self.attached_to_doctype and name already exists in child table
-		# check to see if new attached_to_doctype and name already exists in child table
-		self.append('file_association', {
-			'link_doctype': self.attached_to_doctype,
-			'link_name': self.attached_to_name
-		})
+			existing_file = frappe.get_doc('File', associated_doc)
+			existing_file.attached_to_doctype = self.attached_to_doctype
+			existing_file.attached_to_name = self.attached_to_name
+			self.content_hash = existing_file.content_hash
+			self = existing_file
+
+		existing_attachment = list(filter(
+			lambda row: row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name,
+			self.file_association,
+		))
+		if not existing_attachment:
+			self.append('file_association', {
+				'link_doctype': self.attached_to_doctype,
+				'link_name': self.attached_to_name
+			})
+		if associated_doc:
+			self.save()
 
 	def validate(self) -> None:
 		self.associate_files()
@@ -77,6 +93,25 @@ class CustomFile(File):
 			super().validate()
 		else:
 			self.validate_file_url()
+
+	def after_insert(self) -> File:
+		if self.attached_to_doctype and self.attached_to_name and not self.file_association:
+			if not self.content_hash and '/api/method/retrieve' in self.file_url:
+				associated_doc = frappe.get_value('File', {'file_url': self.file_url}, 'name')
+			else:
+				associated_doc = frappe.db.get_value('File', {'content_hash': self.content_hash, 'name': ['!=', self.name], 'is_folder': False})
+			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True)
+
+	def remove_file_association(self, dt: str, dn: str) -> None:
+		if len(self.file_association) <= 1:
+			self.delete()
+			return
+		for row in self.file_association:
+			if row.link_doctype == dt and row.link_name == dn:
+				frappe.delete_doc('File Association', row.name)
+				del row
+		self.save()
+
 
 	@property
 	def is_remote_file(self) -> bool:
@@ -333,3 +368,14 @@ def share(key: str) -> None:
 		frappe.local.response["location"] = signed_url
 
 	frappe.local.response["body"] = "Key not found"
+
+
+@frappe.whitelist(methods=["DELETE", "POST"])
+def remove_attach():
+	print(frappe.form_dict)
+	fid = frappe.form_dict.get("fid")
+	dt = frappe.form_dict.get("dt")
+	dn = frappe.form_dict.get("dn")
+	doc = frappe.get_doc('File', fid)
+	doc.remove_file_association(dt, dn)
+	print(len(doc.file_association))
