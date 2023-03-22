@@ -1,7 +1,6 @@
 # Cloud Storage Developer Setup
 
 Before you begin, make sure that your Python version is:
-- Latest 3.8 for Frappe's version 13
 - Latest 3.10 for Frappe's version 14.
 
 1. First, set up a new bench and substitute a path to the python version to use. These instructions use [pyenv](https://github.com/pyenv/pyenv) for managing environments.

@@ -35,3 +35,11 @@ Users may delete files as long as the file is not attached to a submitted docume
 If a user tries to access a file that's been deleted or clicks on the old version of a sharing link that's been reset, they will see the following error page.
 
 ![Error page when a file is no longer accessible.](./assets/reset_link_or_deleted_file_screen.png)
+
+## Multiple File Association
+
+Cloud Storage enhances Frappe's file system to allow for association of the same file with multiple documents.
+
+This can be done by using the native "Attach" button. To select a File that has already been attached to the Frappe instance, you can select the 'Library' option. If you upload the file a second time -- where the file has an identical file hash -- Cloud Storage will associate the file with the same record.
+
+When deleting attachments, if a File is associated with multiple records it must be remove intentionally from the record.
