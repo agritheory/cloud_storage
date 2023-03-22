@@ -7,15 +7,14 @@
  "engine": "InnoDB",
  "field_order": [
   "link_doctype",
-  "link_name",
-  "link_title"
+  "link_name"
  ],
  "fields": [
   {
    "fieldname": "link_doctype",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Link Document Type",
+   "label": "Document Type",
    "options": "DocType",
    "reqd": 1
   },
@@ -23,21 +22,14 @@
    "fieldname": "link_name",
    "fieldtype": "Dynamic Link",
    "in_list_view": 1,
-   "label": "Link Name",
+   "label": "Document Name",
    "options": "link_doctype",
    "reqd": 1
-  },
-  {
-   "fieldname": "link_title",
-   "fieldtype": "Read Only",
-   "in_list_view": 1,
-   "label": "Link Title",
-   "read_only": 1
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2023-03-20 12:48:05.086487",
+ "modified": "2023-03-22 12:37:44.883229",
  "modified_by": "Administrator",
  "module": "Cloud Storage",
  "name": "File Association",
