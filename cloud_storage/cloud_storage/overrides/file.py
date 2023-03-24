@@ -59,7 +59,7 @@ class CustomFile(File):
 			)
 		super().on_trash()
 
-	def associate_files(self) -> File:
+	def associate_files(self) -> None:
 		if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
 			associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 		else:
@@ -73,6 +73,8 @@ class CustomFile(File):
 			existing_file.attached_to_doctype = self.attached_to_doctype
 			existing_file.attached_to_name = self.attached_to_name
 			self.content_hash = existing_file.content_hash
+			# if a File exists already where this association should be, we continue validating that File at this time
+			# the original File will then be removed in the after insert hook
 			self = existing_file
 
 		existing_attachment = list(
