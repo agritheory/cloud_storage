@@ -60,6 +60,12 @@ class CustomFile(File):
 		super().on_trash()
 
 	def associate_files(self) -> None:
+		if not self.attached_to_doctype:
+			return
+		if not self.file_url:
+			client = get_cloud_storage_client()
+			path = get_file_path(self, client.folder)
+			self.file_url = FILE_URL.format(path=path)
 		if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
 			associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 		else:
@@ -67,7 +73,6 @@ class CustomFile(File):
 				"File",
 				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False} # type: ignore
 			)
-
 		if associated_doc:
 			existing_file = frappe.get_doc("File", associated_doc)
 			existing_file.attached_to_doctype = self.attached_to_doctype
@@ -92,6 +97,7 @@ class CustomFile(File):
 		if associated_doc:
 			self.save()
 
+
 	def validate(self) -> None:
 		self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
@@ -115,12 +121,14 @@ class CustomFile(File):
 		if len(self.file_association) <= 1:
 			self.delete()
 			return
-		for row in self.file_association:
+		for idx, row in enumerate(self.file_association):
 			if row.link_doctype == dt and row.link_name == dn:
+				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:
+					self.attached_to_doctype = self.file_association[(idx + 1) % len(self.file_association)].link_doctype
+					self.attached_to_name = self.file_association[(idx + 1) % len(self.file_association)].link_name
 				frappe.delete_doc("File Association", row.name)
 				del row
 		self.save()
-
 
 	@property
 	def is_remote_file(self) -> bool:
