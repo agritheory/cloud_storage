@@ -1,7 +1,6 @@
 # Cloud Storage Developer Setup
 
 Before you begin, make sure that your Python version is:
-- Latest 3.8 for Frappe's version 13
 - Latest 3.10 for Frappe's version 14.
 
 1. First, set up a new bench and substitute a path to the python version to use. These instructions use [pyenv](https://github.com/pyenv/pyenv) for managing environments.
@@ -19,7 +18,7 @@ bench new-site {{ site name }} --force --db-name {{ site name }}
 
 3. Download the Cloud Storage application
 ```shell
-bench get-app cloud_storage git@github.com:agritheory/cloud_storage.git
+bench get-app cloud_storage https://github.com/agritheory/cloud_storage.git
 ```
 
 4. Install the app to your site
@@ -62,4 +61,10 @@ port install file
 9. Once everything is set up, launch your bench.
 ```shell
 bench start
+```
+
+10. To run `mypy` locally:
+```shell
+source env/bin/activate
+mypy ./apps/cloud_storage/cloud_storage --ignore-missing-imports
 ```

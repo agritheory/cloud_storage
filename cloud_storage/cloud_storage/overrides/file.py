@@ -11,12 +11,14 @@ from botocore.exceptions import ClientError
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
 from frappe.permissions import has_user_permission
+from frappe.query_builder import DocType
 from frappe.utils import get_url
+from frappe.model.rename_doc import rename_doc
 from magic import from_buffer
 
-FILE_URL = "/api/method/retrieve?key={path}"
 
-URL_PREFIXES = ("http://", "https://", '/api/method/retrieve')
+FILE_URL = "/api/method/retrieve?key={path}"
+URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
 
 class CustomFile(File):
@@ -50,16 +52,83 @@ class CustomFile(File):
 				_("This file is attached to a submitted document and cannot be deleted"),
 				frappe.PermissionError,
 			)
-
+		if len(self.file_association) > 1:
+			frappe.throw(
+				_("This file is attached to multiple documents and cannot be deleted"),
+				frappe.PermissionError,
+			)
 		super().on_trash()
 
+	def associate_files(self) -> None:
+		if not self.attached_to_doctype:
+			return
+		if not self.file_url:
+			client = get_cloud_storage_client()
+			path = get_file_path(self, client.folder)
+			self.file_url = FILE_URL.format(path=path)
+		if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
+			associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
+		else:
+			associated_doc = frappe.db.get_value(
+				"File",
+				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False} # type: ignore
+			)
+		if associated_doc:
+			existing_file = frappe.get_doc("File", associated_doc)
+			existing_file.attached_to_doctype = self.attached_to_doctype
+			existing_file.attached_to_name = self.attached_to_name
+			self.content_hash = existing_file.content_hash
+			# if a File exists already where this association should be, we continue validating that File at this time
+			# the original File will then be removed in the after insert hook
+			self = existing_file
+
+		existing_attachment = list(
+			filter(
+				lambda row: row.link_doctype == self.attached_to_doctype
+				and row.link_name == self.attached_to_name,
+				self.file_association,
+			)
+		)
+		if not existing_attachment:
+			self.append(
+				"file_association",
+				{"link_doctype": self.attached_to_doctype, "link_name": self.attached_to_name},
+			)
+		if associated_doc:
+			self.save()
+
+
 	def validate(self) -> None:
+		self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		if not self.is_remote_file:
 			super().validate()
 		else:
 			self.validate_file_url()
+
+	def after_insert(self) -> File:
+		if self.attached_to_doctype and self.attached_to_name and not self.file_association:
+			if not self.content_hash and "/api/method/retrieve" in self.file_url:
+				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
+			else:
+				associated_doc = frappe.db.get_value(
+					"File", {"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False}
+				)
+			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True)
+
+	def remove_file_association(self, dt: str, dn: str) -> None:
+		if len(self.file_association) <= 1:
+			self.delete()
+			return
+		for idx, row in enumerate(self.file_association):
+			if row.link_doctype == dt and row.link_name == dn:
+				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:
+					self.attached_to_doctype = self.file_association[(idx + 1) % len(self.file_association)].link_doctype
+					self.attached_to_name = self.file_association[(idx + 1) % len(self.file_association)].link_name
+				frappe.delete_doc("File Association", row.name)
+				del row
+		self.save()
 
 	@property
 	def is_remote_file(self) -> bool:
@@ -101,6 +170,7 @@ class CustomFile(File):
 			frappe.throw(_("File name cannot have {0}").format(os.path.sep))
 
 		return file_path
+
 
 def is_safe_path(path: str) -> bool:
 	if path.startswith(URL_PREFIXES):
@@ -316,3 +386,14 @@ def share(key: str) -> None:
 		frappe.local.response["location"] = signed_url
 
 	frappe.local.response["body"] = "Key not found"
+
+
+@frappe.whitelist(methods=["DELETE", "POST"])
+def remove_attach():
+	fid = frappe.form_dict.get("fid")
+	dt = frappe.form_dict.get("dt")
+	dn = frappe.form_dict.get("dn")
+	if not all([fid, dt, dn]):
+		return
+	doc = frappe.get_doc("File", fid)
+	doc.remove_file_association(dt, dn)

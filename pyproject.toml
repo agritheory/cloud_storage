@@ -11,6 +11,8 @@ dependencies = [
     "boto3~=1.26.41",
     "botocore~=1.29.41",
     "python-magic~=0.4.27",
+    "pytest",
+    'moto[s3]'
 ]
 
 [build-system]

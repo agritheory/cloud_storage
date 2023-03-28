@@ -88,5 +88,7 @@ jobs:
         run: |
           bench --site test_site set-config allow_tests true
           bench --site test_site run-tests --app cloud_storage
+          source env/bin/activate
+          pytest ./apps/cloud_storage/cloud_storage/tests/test_file_association.py --disable-warnings -s
         env:
           TYPE: server
