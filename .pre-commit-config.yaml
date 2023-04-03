@@ -46,12 +46,6 @@ repos:
                 frappe/public/js/lib/.*
             )$
 
-
-  - repo: https://github.com/timothycrosley/isort
-    rev: 5.9.1
-    hooks:
-      - id: isort
-
   - repo: https://github.com/PyCQA/flake8
     rev: 5.0.4
     hooks:
