@@ -1,15 +1,19 @@
 {
-  "name": "@agritheory/cloud_storage",
-  "dependencies": {
-    "madr": "^3.0.0"
-  },
-  "release": {
-    "branches": [
-      "version-14"
-    ]
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/agritheory/cloud_storage.git"
-  }
+	"name": "@agritheory/cloud_storage",
+	"dependencies": {
+		"madr": "^3.0.0"
+	},
+	"release": {
+		"branches": [
+			"version-14"
+		]
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/agritheory/cloud_storage.git"
+	},
+	"publishConfig": {
+		"access": "restricted"
+	},
+	"private": true
 }
