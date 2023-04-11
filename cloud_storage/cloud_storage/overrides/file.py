@@ -71,7 +71,7 @@ class CustomFile(File):
 		else:
 			associated_doc = frappe.db.get_value(
 				"File",
-				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False} # type: ignore
+				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
 			)
 		if associated_doc:
 			existing_file = frappe.get_doc("File", associated_doc)
@@ -97,7 +97,6 @@ class CustomFile(File):
 		if associated_doc:
 			self.save()
 
-
 	def validate(self) -> None:
 		self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
@@ -115,7 +114,9 @@ class CustomFile(File):
 				associated_doc = frappe.db.get_value(
 					"File", {"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False}
 				)
-			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True)
+			rename_doc(
+				self.doctype, self.name, associated_doc, merge=True, force=True, ignore_permissions=True
+			)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
@@ -124,8 +125,12 @@ class CustomFile(File):
 		for idx, row in enumerate(self.file_association):
 			if row.link_doctype == dt and row.link_name == dn:
 				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:
-					self.attached_to_doctype = self.file_association[(idx + 1) % len(self.file_association)].link_doctype
-					self.attached_to_name = self.file_association[(idx + 1) % len(self.file_association)].link_name
+					self.attached_to_doctype = self.file_association[
+						(idx + 1) % len(self.file_association)
+					].link_doctype
+					self.attached_to_name = self.file_association[
+						(idx + 1) % len(self.file_association)
+					].link_name
 				frappe.delete_doc("File Association", row.name)
 				del row
 		self.save()
