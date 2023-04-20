@@ -7,6 +7,7 @@ import os
 import frappe
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
@@ -218,8 +219,9 @@ def get_cloud_storage_client():
 		aws_secret_access_key=config.get("secret"),
 		region_name=config.get("region"),
 	)
-
-	client = session.client("s3", endpoint_url=config.get("endpoint_url"))
+	client = session.client(
+		"s3", endpoint_url=config.get("endpoint_url"), config=Config(signature_version="s3v4")
+	)
 	client.bucket = config.get("bucket")
 	client.folder = config.get("folder", None)
 	client.expiration = config.get("expiration", 120)
