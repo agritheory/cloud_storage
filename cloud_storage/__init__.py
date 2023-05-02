@@ -7,6 +7,13 @@ from frappe.query_builder import DocType
 
 @frappe.whitelist()
 def patched_get_attachments(dt, dn):
+	if "cloud_storage" not in frappe.get_installed_apps():
+		return frappe.get_all(
+			"File",
+			fields=["name", "file_name", "file_url", "is_private"],
+			filters={"attached_to_name": dn, "attached_to_doctype": dt},
+		)
+
 	File = DocType("File")
 	FileAssociation = DocType("File Association")
 	return (

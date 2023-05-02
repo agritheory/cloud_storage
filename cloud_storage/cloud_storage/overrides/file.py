@@ -121,7 +121,7 @@ class CustomFile(File):
 				associated_doc = frappe.db.get_value(
 					"File", {"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False}
 				)
-			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True, show_alert=False)
+			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True, show_alert=False, ignore_permissions=True)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
