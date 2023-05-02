@@ -43,7 +43,6 @@ class CustomFile(File):
 		return has_access
 
 	def on_trash(self) -> None:
-		print("on trash flags", self.flags)
 		user_roles = frappe.get_roles(frappe.session.user)
 		if (
 			frappe.session.user != "Administrator"
@@ -54,16 +53,13 @@ class CustomFile(File):
 				_("This file is attached to a submitted document and cannot be deleted"),
 				frappe.PermissionError,
 			)
-		if len(self.file_association) > 1:
-			frappe.throw(
-				_("This file is attached to multiple documents and cannot be deleted"),
-				frappe.PermissionError,
-			)
 		if self.is_home_folder or self.is_attachments_folder:
 			frappe.throw(_("Cannot delete Home and Attachments folders"))
+		if len(self.file_association) > 0:
+			return
 		self.validate_empty_folder()
 		self._delete_file_on_disk()
-		if not self.is_folder:
+		if not self.is_folder and len(self.file_association) > 0:
 			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
 
 	def associate_files(self) -> None:
@@ -121,7 +117,19 @@ class CustomFile(File):
 				associated_doc = frappe.db.get_value(
 					"File", {"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False}
 				)
-			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True, show_alert=False, ignore_permissions=True)
+			if associated_doc:
+				self.db_set(
+					"file_url", ""
+				)  # this is done to prevent deletion of the remote file with the delete_file hook
+				rename_doc(
+					self.doctype,
+					self.name,
+					associated_doc,
+					merge=True,
+					force=True,
+					show_alert=False,
+					ignore_permissions=True,
+				)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
