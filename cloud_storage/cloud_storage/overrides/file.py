@@ -1,8 +1,9 @@
+import io
 import json
+import os
 import re
 import types
 import uuid
-import os
 
 import frappe
 from boto3.exceptions import S3UploadFailedError
@@ -12,7 +13,7 @@ from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
 from frappe.permissions import has_user_permission
 from frappe.query_builder import DocType
-from frappe.utils import get_url
+from frappe.utils import get_url, encode
 from frappe.model.rename_doc import rename_doc
 from magic import from_buffer
 
@@ -42,6 +43,7 @@ class CustomFile(File):
 		return has_access
 
 	def on_trash(self) -> None:
+		print('on trash flags', self.flags)
 		user_roles = frappe.get_roles(frappe.session.user)
 		if (
 			frappe.session.user != "Administrator"
@@ -57,7 +59,12 @@ class CustomFile(File):
 				_("This file is attached to multiple documents and cannot be deleted"),
 				frappe.PermissionError,
 			)
-		super().on_trash()
+		if self.is_home_folder or self.is_attachments_folder:
+			frappe.throw(_("Cannot delete Home and Attachments folders"))
+		self.validate_empty_folder()
+		self._delete_file_on_disk()
+		if not self.is_folder:
+			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
 
 	def associate_files(self) -> None:
 		if not self.attached_to_doctype:
@@ -115,7 +122,8 @@ class CustomFile(File):
 				associated_doc = frappe.db.get_value(
 					"File", {"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False}
 				)
-			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True)
+			self.flags.leave_remote_file =True 
+			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True, show_alert=False)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
@@ -135,6 +143,43 @@ class CustomFile(File):
 		if self.file_url:
 			return self.file_url.startswith(URL_PREFIXES)
 		return not self.content
+
+	def get_content(self) -> bytes:
+		if self.is_folder:
+			frappe.throw(_("Cannot get file contents of a Folder"))
+
+		if self.get("content"):
+			self._content = self.content
+			if self.decode:
+				self._content = decode_file_content(self._content)
+				self.decode = False
+			# self.content = None # TODO: This needs to happen; make it happen somehow
+			return self._content
+
+		if self.file_url:
+			self.validate_file_url()
+		file_path = self.get_full_path()
+
+		if self.is_remote_file:
+			client = get_cloud_storage_client()
+			file_object = client.get_object(
+				Bucket=client.bucket,
+				Key=self.s3_key
+			)
+			self._content = file_object.get('Body').read()
+		else:
+			# read the file
+			with open(file_path, mode="rb") as f:
+				self._content = f.read()
+				try:
+					# for plain text files
+					self._content = self._content.decode()
+				except UnicodeDecodeError:
+					# for .png, .jpg, etc
+					pass
+
+		return self._content
+
 
 	def get_full_path(self):
 		"""Returns file path from given file name"""
@@ -352,11 +397,15 @@ def delete_file(file: File, **kwargs) -> File:
 	if file.is_folder:
 		return file
 
+	if kwargs.get('dont_delete'):
+		return
+
 	if file.file_url and "?key=" in file.file_url:
 		key = file.file_url.split("?key=")[1]
 		if key:
 			client = get_cloud_storage_client()
 			try:
+				print('!!! deleting from cloud', self.flags.__dict__)
 				client.delete_object(Bucket=client.bucket, Key=key)
 			except ClientError:
 				frappe.throw(_("Access denied: Could not delete file"))
