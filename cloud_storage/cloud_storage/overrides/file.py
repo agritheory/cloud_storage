@@ -16,7 +16,7 @@ from frappe.query_builder import DocType
 from frappe.utils import get_url, encode
 from frappe.model.rename_doc import rename_doc
 from magic import from_buffer
-
+from frappe.core.doctype.file.utils import decode_file_content
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -43,7 +43,7 @@ class CustomFile(File):
 		return has_access
 
 	def on_trash(self) -> None:
-		print('on trash flags', self.flags)
+		print("on trash flags", self.flags)
 		user_roles = frappe.get_roles(frappe.session.user)
 		if (
 			frappe.session.user != "Administrator"
@@ -78,7 +78,7 @@ class CustomFile(File):
 		else:
 			associated_doc = frappe.db.get_value(
 				"File",
-				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False} # type: ignore
+				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
 			)
 		if associated_doc:
 			existing_file = frappe.get_doc("File", associated_doc)
@@ -104,7 +104,6 @@ class CustomFile(File):
 		if associated_doc:
 			self.save()
 
-
 	def validate(self) -> None:
 		self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
@@ -122,7 +121,6 @@ class CustomFile(File):
 				associated_doc = frappe.db.get_value(
 					"File", {"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False}
 				)
-			self.flags.leave_remote_file =True 
 			rename_doc(self.doctype, self.name, associated_doc, merge=True, force=True, show_alert=False)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
@@ -132,8 +130,12 @@ class CustomFile(File):
 		for idx, row in enumerate(self.file_association):
 			if row.link_doctype == dt and row.link_name == dn:
 				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:
-					self.attached_to_doctype = self.file_association[(idx + 1) % len(self.file_association)].link_doctype
-					self.attached_to_name = self.file_association[(idx + 1) % len(self.file_association)].link_name
+					self.attached_to_doctype = self.file_association[
+						(idx + 1) % len(self.file_association)
+					].link_doctype
+					self.attached_to_name = self.file_association[
+						(idx + 1) % len(self.file_association)
+					].link_name
 				frappe.delete_doc("File Association", row.name)
 				del row
 		self.save()
@@ -162,11 +164,8 @@ class CustomFile(File):
 
 		if self.is_remote_file:
 			client = get_cloud_storage_client()
-			file_object = client.get_object(
-				Bucket=client.bucket,
-				Key=self.s3_key
-			)
-			self._content = file_object.get('Body').read()
+			file_object = client.get_object(Bucket=client.bucket, Key=self.s3_key)
+			self._content = file_object.get("Body").read()
 		else:
 			# read the file
 			with open(file_path, mode="rb") as f:
@@ -179,7 +178,6 @@ class CustomFile(File):
 					pass
 
 		return self._content
-
 
 	def get_full_path(self):
 		"""Returns file path from given file name"""
@@ -397,15 +395,11 @@ def delete_file(file: File, **kwargs) -> File:
 	if file.is_folder:
 		return file
 
-	if kwargs.get('dont_delete'):
-		return
-
 	if file.file_url and "?key=" in file.file_url:
 		key = file.file_url.split("?key=")[1]
 		if key:
 			client = get_cloud_storage_client()
 			try:
-				print('!!! deleting from cloud', self.flags.__dict__)
 				client.delete_object(Bucket=client.bucket, Key=key)
 			except ClientError:
 				frappe.throw(_("Access denied: Could not delete file"))
