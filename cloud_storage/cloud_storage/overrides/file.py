@@ -1,22 +1,21 @@
-import io
 import json
 import os
 import re
 import types
 import uuid
 
-import frappe
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.exceptions import ClientError
+from magic import from_buffer
+
+import frappe
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
-from frappe.permissions import has_user_permission
-from frappe.query_builder import DocType
-from frappe.utils import get_url, encode
-from frappe.model.rename_doc import rename_doc
-from magic import from_buffer
 from frappe.core.doctype.file.utils import decode_file_content
+from frappe.model.rename_doc import rename_doc
+from frappe.permissions import has_user_permission
+from frappe.utils import get_url
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -47,7 +46,7 @@ class CustomFile(File):
 		if (
 			frappe.session.user != "Administrator"
 			and "System Manager" not in user_roles
-			and (frappe.db.get_value(self.attached_to_doctype, self.attached_to_name, "docstatus") == 1)
+			and (frappe.get_value(self.attached_to_doctype, self.attached_to_name, "docstatus") == 1)
 		):
 			frappe.throw(
 				_("This file is attached to a submitted document and cannot be deleted"),
@@ -72,7 +71,7 @@ class CustomFile(File):
 		if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
 			associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 		else:
-			associated_doc = frappe.db.get_value(
+			associated_doc = frappe.get_value(
 				"File",
 				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
 			)
@@ -114,8 +113,10 @@ class CustomFile(File):
 			if not self.content_hash and "/api/method/retrieve" in self.file_url:
 				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 			else:
-				associated_doc = frappe.db.get_value(
-					"File", {"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False}
+				associated_doc = frappe.get_value(
+					"File",
+					{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},
+					"name",
 				)
 			if associated_doc:
 				self.db_set(
