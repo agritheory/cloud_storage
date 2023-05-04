@@ -58,6 +58,7 @@ class CustomFile(File):
 			return
 		self.validate_empty_folder()
 		self._delete_file_on_disk()
+		# even though the code is unreachable, we're keeping it here for reference
 		if not self.is_folder and len(self.file_association) > 0:
 			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
 
