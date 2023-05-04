@@ -1,21 +1,21 @@
 import json
+import os
 import re
 import types
 import uuid
-import os
 
-import frappe
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.exceptions import ClientError
-from frappe import DoesNotExistError, _
-from frappe.core.doctype.file.file import File, get_files_path
-from frappe.permissions import has_user_permission
-from frappe.query_builder import DocType
-from frappe.utils import get_url
-from frappe.model.rename_doc import rename_doc
 from magic import from_buffer
 
+import frappe
+from frappe import DoesNotExistError, _
+from frappe.core.doctype.file.file import File, get_files_path
+from frappe.core.doctype.file.utils import decode_file_content
+from frappe.model.rename_doc import rename_doc
+from frappe.permissions import has_user_permission
+from frappe.utils import get_url
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -46,18 +46,21 @@ class CustomFile(File):
 		if (
 			frappe.session.user != "Administrator"
 			and "System Manager" not in user_roles
-			and (frappe.db.get_value(self.attached_to_doctype, self.attached_to_name, "docstatus") == 1)
+			and (frappe.get_value(self.attached_to_doctype, self.attached_to_name, "docstatus") == 1)
 		):
 			frappe.throw(
 				_("This file is attached to a submitted document and cannot be deleted"),
 				frappe.PermissionError,
 			)
-		if len(self.file_association) > 1:
-			frappe.throw(
-				_("This file is attached to multiple documents and cannot be deleted"),
-				frappe.PermissionError,
-			)
-		super().on_trash()
+		if self.is_home_folder or self.is_attachments_folder:
+			frappe.throw(_("Cannot delete Home and Attachments folders"))
+		if len(self.file_association) > 0:
+			return
+		self.validate_empty_folder()
+		self._delete_file_on_disk()
+		# even though the code is unreachable, we're keeping it here for reference
+		if not self.is_folder and len(self.file_association) > 0:
+			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
 
 	def associate_files(self) -> None:
 		if not self.attached_to_doctype:
@@ -69,7 +72,7 @@ class CustomFile(File):
 		if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
 			associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 		else:
-			associated_doc = frappe.db.get_value(
+			associated_doc = frappe.get_value(
 				"File",
 				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
 			)
@@ -111,12 +114,24 @@ class CustomFile(File):
 			if not self.content_hash and "/api/method/retrieve" in self.file_url:
 				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 			else:
-				associated_doc = frappe.db.get_value(
-					"File", {"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False}
+				associated_doc = frappe.get_value(
+					"File",
+					{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},
+					"name",
 				)
-			rename_doc(
-				self.doctype, self.name, associated_doc, merge=True, force=True, ignore_permissions=True
-			)
+			if associated_doc:
+				self.db_set(
+					"file_url", ""
+				)  # this is done to prevent deletion of the remote file with the delete_file hook
+				rename_doc(
+					self.doctype,
+					self.name,
+					associated_doc,
+					merge=True,
+					force=True,
+					show_alert=False,
+					ignore_permissions=True,
+				)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
@@ -140,6 +155,39 @@ class CustomFile(File):
 		if self.file_url:
 			return self.file_url.startswith(URL_PREFIXES)
 		return not self.content
+
+	def get_content(self) -> bytes:
+		if self.is_folder:
+			frappe.throw(_("Cannot get file contents of a Folder"))
+
+		if self.get("content"):
+			self._content = self.content
+			if self.decode:
+				self._content = decode_file_content(self._content)
+				self.decode = False
+			# self.content = None # TODO: This needs to happen; make it happen somehow
+			return self._content
+
+		if self.file_url:
+			self.validate_file_url()
+		file_path = self.get_full_path()
+
+		if self.is_remote_file:
+			client = get_cloud_storage_client()
+			file_object = client.get_object(Bucket=client.bucket, Key=self.s3_key)
+			self._content = file_object.get("Body").read()
+		else:
+			# read the file
+			with open(file_path, mode="rb") as f:
+				self._content = f.read()
+				try:
+					# for plain text files
+					self._content = self._content.decode()
+				except UnicodeDecodeError:
+					# for .png, .jpg, etc
+					pass
+
+		return self._content
 
 	def get_full_path(self):
 		"""Returns file path from given file name"""
