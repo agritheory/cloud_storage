@@ -76,7 +76,7 @@ class CustomFile(File):
 				"File",
 				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
 			)
-		if associated_doc:
+		if associated_doc and associated_doc != self.name:
 			existing_file = frappe.get_doc("File", associated_doc)
 			existing_file.attached_to_doctype = self.attached_to_doctype
 			existing_file.attached_to_name = self.attached_to_name
@@ -97,7 +97,7 @@ class CustomFile(File):
 				"file_association",
 				{"link_doctype": self.attached_to_doctype, "link_name": self.attached_to_name},
 			)
-		if associated_doc:
+		if associated_doc and associated_doc != self.name:
 			self.save()
 
 	def validate(self) -> None:
