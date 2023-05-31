@@ -84,19 +84,19 @@ class CustomFile(File):
 			# if a File exists already where this association should be, we continue validating that File at this time
 			# the original File will then be removed in the after insert hook
 			self = existing_file
-
-		existing_attachment = list(
-			filter(
-				lambda row: row.link_doctype == self.attached_to_doctype
-				and row.link_name == self.attached_to_name,
-				self.file_association,
+		if self.attached_to_doctype and self.attached_to_name:
+			existing_attachment = list(
+				filter(
+					lambda row: row.link_doctype == self.attached_to_doctype
+					and row.link_name == self.attached_to_name,
+					self.file_association,
+				)
 			)
-		)
-		if not existing_attachment:
-			self.append(
-				"file_association",
-				{"link_doctype": self.attached_to_doctype, "link_name": self.attached_to_name},
-			)
+			if not existing_attachment:
+				self.append(
+					"file_association",
+					{"link_doctype": self.attached_to_doctype, "link_name": self.attached_to_name},
+				)
 		if associated_doc and associated_doc != self.name:
 			self.save()
 
