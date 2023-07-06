@@ -133,6 +133,9 @@ class CustomFile(File):
 					ignore_permissions=True,
 				)
 
+	def add_file_version(self):
+		pass
+
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
 			self.delete()

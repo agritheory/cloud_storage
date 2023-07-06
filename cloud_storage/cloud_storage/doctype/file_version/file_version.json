@@ -1,0 +1,40 @@
+{
+ "actions": [],
+ "creation": "2023-07-06 05:38:35.891393",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "version",
+  "timestamp",
+  "s3_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "version",
+   "fieldtype": "Data",
+   "label": "Version"
+  },
+  {
+   "fieldname": "timestamp",
+   "fieldtype": "Date",
+   "label": "Timestamp"
+  },
+  {
+   "fieldname": "s3_key",
+   "fieldtype": "Data",
+   "label": "S3 Key"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2023-07-06 05:42:27.001228",
+ "modified_by": "Administrator",
+ "module": "Cloud Storage",
+ "name": "File Version",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
