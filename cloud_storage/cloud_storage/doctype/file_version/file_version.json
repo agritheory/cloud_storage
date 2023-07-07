@@ -6,29 +6,27 @@
  "engine": "InnoDB",
  "field_order": [
   "version",
-  "timestamp",
-  "s3_key"
+  "timestamp"
  ],
  "fields": [
   {
    "fieldname": "version",
    "fieldtype": "Data",
-   "label": "Version"
+   "in_list_view": 1,
+   "label": "Version",
+   "read_only": 1
   },
   {
    "fieldname": "timestamp",
    "fieldtype": "Date",
-   "label": "Timestamp"
-  },
-  {
-   "fieldname": "s3_key",
-   "fieldtype": "Data",
-   "label": "S3 Key"
+   "in_list_view": 1,
+   "label": "Timestamp",
+   "read_only": 1
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2023-07-06 05:42:27.001228",
+ "modified": "2023-07-07 16:06:07.225304",
  "modified_by": "Administrator",
  "module": "Cloud Storage",
  "name": "File Version",

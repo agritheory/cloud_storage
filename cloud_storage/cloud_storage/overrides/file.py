@@ -4,6 +4,7 @@ import re
 import types
 import uuid
 
+import boto3
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.exceptions import ClientError
@@ -16,6 +17,7 @@ from frappe.core.doctype.file.utils import decode_file_content
 from frappe.model.rename_doc import rename_doc
 from frappe.permissions import has_user_permission
 from frappe.utils import get_url
+from frappe.utils.data import get_datetime
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -102,6 +104,7 @@ class CustomFile(File):
 
 	def validate(self) -> None:
 		self.associate_files()
+		# self.add_file_version()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		if not self.is_remote_file:
@@ -133,8 +136,30 @@ class CustomFile(File):
 					ignore_permissions=True,
 				)
 
-	def add_file_version(self):
+	def add_file_version(self, version_id):
+		for row in self.versions:
+			row.idx = row.idx + 1
+		self.append(
+			"versions",
+			{
+				"idx": 0,
+				"version": str(version_id),
+				"timestamp": get_datetime(),
+			},
+		)
+
+	"""
+	https://user-images.githubusercontent.com/13396535/251454386-d98b90d0-66ad-401c-8848-ca279900ed42.png
+	"""
+
+	def validate_file_version(self):
 		pass
+		# 1. new name and new content hash: pass
+		# 2. filename exists but with a different content hash: get decision from user
+		# 2A. rename file
+		# 2B. add version as latest
+		# 3. different file name, existing hash: associate with existing file
+		# 4. same filename and same hash: associate if needed
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
@@ -276,6 +301,7 @@ def get_cloud_storage_client():
 	client.expiration = config.get("expiration", 120)
 	client.get_presigned_url = types.MethodType(get_presigned_url, client)
 	client.get_sharing_url = types.MethodType(get_sharing_url, client)
+
 	return client
 
 
@@ -353,12 +379,17 @@ def upload_file(file: File) -> File:
 	file.file_url = FILE_URL.format(path=path)
 	content_type = file.content_type or from_buffer(file.content, mime=True)
 	try:
-		client.put_object(Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type)
+		response = client.put_object(
+			Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type
+		)
+		if response.get("VersionId"):
+			file.add_file_version(response.get("VersionId"))
 	except S3UploadFailedError:
 		frappe.throw(_("File Upload Failed. Please try again."))
 	except Exception as e:
 		frappe.log_error("File Upload Error", e)
 	file.s3_key = path
+	print(file.versions)
 	return file
 
 
