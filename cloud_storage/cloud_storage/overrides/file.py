@@ -389,7 +389,6 @@ def upload_file(file: File) -> File:
 	except Exception as e:
 		frappe.log_error("File Upload Error", e)
 	file.s3_key = path
-	print(file.versions)
 	return file
 
 
