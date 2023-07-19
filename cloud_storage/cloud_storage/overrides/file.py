@@ -1,10 +1,10 @@
 import json
+from mimetypes import guess_type
 import os
 import re
 import types
 import uuid
 
-import boto3
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.exceptions import ClientError
@@ -13,11 +13,11 @@ from magic import from_buffer
 import frappe
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
-from frappe.core.doctype.file.utils import decode_file_content
+from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
 from frappe.model.rename_doc import rename_doc
 from frappe.permissions import has_user_permission
-from frappe.utils import get_url
-from frappe.utils.data import get_datetime
+from frappe.utils import get_datetime, get_url
+from frappe.utils.image import strip_exif_data
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -104,7 +104,6 @@ class CustomFile(File):
 
 	def validate(self) -> None:
 		self.associate_files()
-		# self.add_file_version()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		if not self.is_remote_file:
@@ -147,19 +146,6 @@ class CustomFile(File):
 				"timestamp": get_datetime(),
 			},
 		)
-
-	"""
-	https://user-images.githubusercontent.com/13396535/251454386-d98b90d0-66ad-401c-8848-ca279900ed42.png
-	"""
-
-	def validate_file_version(self):
-		pass
-		# 1. new name and new content hash: pass
-		# 2. filename exists but with a different content hash: get decision from user
-		# 2A. rename file
-		# 2B. add version as latest
-		# 3. different file name, existing hash: associate with existing file
-		# 4. same filename and same hash: associate if needed
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
@@ -450,6 +436,40 @@ def delete_file(file: File, **kwargs) -> File:
 				frappe.log_error(str(e), "Cloud Storage Error: Cloud not delete file")
 
 	return file
+
+
+@frappe.whitelist()
+def validate_file_content(*args, **kwargs):
+	"""
+	https://user-images.githubusercontent.com/13396535/251454386-d98b90d0-66ad-401c-8848-ca279900ed42.png
+	"""
+
+	# 1. new name and new content hash: pass
+	# 2. filename exists but with a different content hash: get decision from user
+	# 2A. rename file
+	# 2B. add version as latest
+	# 3. different file name, existing hash: associate with existing file
+	# 4. same filename and same hash: associate if needed
+
+	filename_exists = content_exists = False
+	files = frappe.request.files
+	if "file" in files:
+		file = files["file"]
+		content_type = guess_type(file.filename)[0]
+
+		# validate filename
+		file_name = file.filename
+		existing_filename = frappe.get_all("File", filters={"file_name": file_name})
+		filename_exists = len(existing_filename) > 0
+
+		# validate content hash
+		content = file.stream.read()
+		stripped_content = strip_exif_data(content, content_type)
+		content_hash = get_content_hash(stripped_content)
+		existing_content_hash = frappe.get_all("File", filters={"content_hash": content_hash})
+		content_exists = len(existing_content_hash) > 0
+
+	return {"filename_exists": filename_exists, "content_exists": content_exists}
 
 
 @frappe.whitelist(allow_guest=True)

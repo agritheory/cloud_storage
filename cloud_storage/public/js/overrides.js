@@ -1,6 +1,6 @@
 frappe.provide('frappe.ui')
 
-import { Attachments } from '../../../../frappe/frappe/public/js/frappe/form/sidebar/attachments'
+import FileUploaderComponent from './FileUploader.vue'
 
 $(window).on('hashchange', page_changed)
 $(window).on('load', page_changed)
@@ -14,6 +14,7 @@ function page_changed(event) {
 					disallow_attachment_delete(frm)
 				},
 			})
+
 			if (event.type == 'load') {
 				disallow_attachment_delete(cur_frm)
 			}
@@ -27,38 +28,127 @@ function disallow_attachment_delete(frm) {
 	}
 }
 
-class CloudStorageAttachments extends Attachments {
-	constructor(opts) {
-		super()
-	}
-	new_attachment(fieldname) {
-		if (this.dialog) {
-			// remove upload dialog
-			this.dialog.$wrapper.remove()
-		}
-		console.log('new attachment')
-		const restrictions = {}
-		if (this.frm.meta.max_attachments) {
-			restrictions.max_number_of_files = this.frm.meta.max_attachments - this.frm.attachments.get_attachments().length
+frappe.ui.FileUploader = class CloudStorageFileUploader {
+	constructor({
+		wrapper,
+		method,
+		on_success,
+		doctype,
+		docname,
+		fieldname,
+		files,
+		folder,
+		restrictions = {},
+		upload_notes,
+		allow_multiple,
+		as_dataurl,
+		disable_file_browser,
+		dialog_title,
+		attach_doc_image,
+		frm,
+		make_attachments_public,
+	} = {}) {
+		frm && frm.attachments.max_reached(true)
+
+		if (!wrapper) {
+			this.make_dialog(dialog_title)
+		} else {
+			this.wrapper = wrapper.get ? wrapper.get(0) : wrapper
 		}
 
-		new frappe.ui.FileUploader({
-			doctype: this.frm.doctype,
-			docname: this.frm.docname,
-			frm: this.frm,
-			folder: 'Home/Attachments',
-			on_success: async file_doc => {
-				await this.version_check()
-				this.attachment_uploaded(file_doc)
+		console.log('rendering new one')
+		this.$fileuploader = new Vue({
+			el: this.wrapper,
+			render: h =>
+				h(FileUploaderComponent, {
+					props: {
+						show_upload_button: !Boolean(this.dialog),
+						doctype,
+						docname,
+						fieldname,
+						method,
+						folder,
+						on_success,
+						restrictions,
+						upload_notes,
+						allow_multiple,
+						as_dataurl,
+						disable_file_browser,
+						attach_doc_image,
+						make_attachments_public,
+					},
+				}),
+		})
+
+		this.uploader = this.$fileuploader.$children[0]
+
+		if (!this.dialog) {
+			this.uploader.wrapper_ready = true
+		}
+
+		this.uploader.$watch(
+			'files',
+			files => {
+				let all_private = files.every(file => file.private)
+				if (this.dialog) {
+					this.dialog.set_secondary_action_label(all_private ? __('Set all public') : __('Set all private'))
+				}
 			},
-			restrictions,
-			make_attachments_public: this.frm.meta.make_attachments_public,
+			{ deep: true }
+		)
+
+		this.uploader.$watch('trigger_upload', trigger_upload => {
+			if (trigger_upload) {
+				this.upload_files()
+			}
+		})
+
+		this.uploader.$watch('close_dialog', close_dialog => {
+			if (close_dialog) {
+				this.dialog && this.dialog.hide()
+			}
+		})
+
+		this.uploader.$watch('hide_dialog_footer', hide_dialog_footer => {
+			if (hide_dialog_footer) {
+				this.dialog && this.dialog.footer.addClass('hide')
+				this.dialog.$wrapper.data('bs.modal')._config.backdrop = 'static'
+			} else {
+				this.dialog && this.dialog.footer.removeClass('hide')
+				this.dialog.$wrapper.data('bs.modal')._config.backdrop = true
+			}
+		})
+
+		if (files && files.length) {
+			this.uploader.add_files(files)
+		}
+	}
+
+	upload_files() {
+		this.dialog && this.dialog.get_primary_btn().prop('disabled', true)
+		this.dialog && this.dialog.get_secondary_btn().prop('disabled', true)
+		return this.uploader.upload_files()
+	}
+
+	make_dialog(title) {
+		this.dialog = new frappe.ui.Dialog({
+			title: title || __('Upload'),
+			primary_action_label: __('Upload'),
+			primary_action: () => this.upload_files(),
+			secondary_action_label: __('Set all private'),
+			secondary_action: () => {
+				this.uploader.toggle_all_private()
+			},
+			on_page_show: () => {
+				this.uploader.wrapper_ready = true
+			},
+		})
+
+		this.wrapper = this.dialog.body
+		this.dialog.show()
+		this.dialog.$wrapper.on('hidden.bs.modal', function () {
+			$(this).data('bs.modal', null)
+			$(this).remove()
 		})
 	}
-	async version_check() {
-		console.log('version check')
-		return
-	}
 }
-
-frappe.ui.form.Attachments = CloudStorageAttachments
