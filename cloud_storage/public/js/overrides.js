@@ -1,6 +1,6 @@
 frappe.provide('frappe.ui')
 
-import FileUploaderComponent from './FileUploader.vue'
+import FileUploaderComponent from './components/FileUploader.vue'
 
 $(window).on('hashchange', page_changed)
 $(window).on('load', page_changed)
@@ -28,6 +28,7 @@ function disallow_attachment_delete(frm) {
 	}
 }
 
+// TODO: full class override from Frappe's FileUploader.vue file; keep in sync
 frappe.ui.FileUploader = class CloudStorageFileUploader {
 	constructor({
 		wrapper,
@@ -56,7 +57,6 @@ frappe.ui.FileUploader = class CloudStorageFileUploader {
 			this.wrapper = wrapper.get ? wrapper.get(0) : wrapper
 		}
 
-		console.log('rendering new one')
 		this.$fileuploader = new Vue({
 			el: this.wrapper,
 			render: h =>

@@ -440,18 +440,9 @@ def delete_file(file: File, **kwargs) -> File:
 
 @frappe.whitelist()
 def validate_file_content(*args, **kwargs):
-	"""
-	https://user-images.githubusercontent.com/13396535/251454386-d98b90d0-66ad-401c-8848-ca279900ed42.png
-	"""
-
-	# 1. new name and new content hash: pass
-	# 2. filename exists but with a different content hash: get decision from user
-	# 2A. rename file
-	# 2B. add version as latest
-	# 3. different file name, existing hash: associate with existing file
-	# 4. same filename and same hash: associate if needed
-
 	filename_exists = content_exists = False
+	existing_files_by_name, existing_files_by_hash = [], []
+
 	files = frappe.request.files
 	if "file" in files:
 		file = files["file"]
@@ -459,17 +450,23 @@ def validate_file_content(*args, **kwargs):
 
 		# validate filename
 		file_name = file.filename
-		existing_filename = frappe.get_all("File", filters={"file_name": file_name})
-		filename_exists = len(existing_filename) > 0
+		existing_files_by_name = frappe.get_all("File", filters={"file_name": file_name}, pluck="name")
+		filename_exists = len(existing_files_by_name) > 0
 
 		# validate content hash
 		content = file.stream.read()
 		stripped_content = strip_exif_data(content, content_type)
 		content_hash = get_content_hash(stripped_content)
-		existing_content_hash = frappe.get_all("File", filters={"content_hash": content_hash})
-		content_exists = len(existing_content_hash) > 0
+		existing_files_by_hash = frappe.get_all(
+			"File", filters={"content_hash": content_hash}, pluck="name"
+		)
+		content_exists = len(existing_files_by_hash) > 0
 
-	return {"filename_exists": filename_exists, "content_exists": content_exists}
+	return {
+		"filename_exists": filename_exists,
+		"content_exists": content_exists,
+		"matched_files": list(set(existing_files_by_name + existing_files_by_hash)),
+	}
 
 
 @frappe.whitelist(allow_guest=True)

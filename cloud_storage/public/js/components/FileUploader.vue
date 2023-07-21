@@ -107,7 +107,8 @@
 					@remove="remove_file(file)"
 					@toggle_private="file.private = !file.private"
 					@toggle_optimize="file.optimize = !file.optimize"
-					@toggle_image_cropper="toggle_image_cropper(i)" />
+					@toggle_image_cropper="toggle_image_cropper(i)"
+					@rename_file="rename_file"/>
 			</div>
 			<div class="flex align-center" v-if="show_upload_button && currently_uploading === -1">
 				<button class="btn btn-primary btn-sm margin-right" @click="upload_files">
@@ -138,11 +139,11 @@
 </template>
 
 <script>
-import FileBrowser from '../../../../frappe/frappe/public/js/frappe/file_uploader/FileBrowser.vue'
-import FilePreview from '../../../../frappe/frappe/public/js/frappe/file_uploader/FilePreview.vue'
-import GoogleDrivePicker from '../../../../frappe/frappe/public/js/integrations/google_drive_picker'
-import ImageCropper from '../../../../frappe/frappe/public/js/frappe/file_uploader/ImageCropper.vue'
-import WebLink from '../../../../frappe/frappe/public/js/frappe/file_uploader/WebLink.vue'
+import FileBrowser from '../../../../../frappe/frappe/public/js/frappe/file_uploader/FileBrowser.vue'
+import FilePreview from './FilePreview.vue'
+import GoogleDrivePicker from '../../../../../frappe/frappe/public/js/integrations/google_drive_picker'
+import ImageCropper from '../../../../../frappe/frappe/public/js/frappe/file_uploader/ImageCropper.vue'
+import WebLink from '../../../../../frappe/frappe/public/js/frappe/file_uploader/WebLink.vue'
 
 export default {
 	name: 'FileUploader',
@@ -270,56 +271,77 @@ export default {
 			this.$refs.file_input.click()
 		},
 		on_file_input(e) {
-			const files = this.$refs.file_input.files
-			for (const file of files) {
-				let xhr = new XMLHttpRequest()
-				xhr.onreadystatechange = () => {
-					if (xhr.readyState == XMLHttpRequest.DONE) {
-						if (xhr.status === 200) {
-							let response;
-							try {
-								response = JSON.parse(xhr.responseText)
-							} catch (e) {
-								response = xhr.responseText
-							}
-
-							const message = response.message
-							debugger;
-							if (i == this.files.length - 1 && this.files.every(file => file.request_succeeded)) {
-								this.close_dialog = true
-							}
-						} else if (xhr.status === 403) {
-							file.failed = true
-							let response = JSON.parse(xhr.responseText)
-							file.error_message = `Not permitted. ${response._error_message || ''}`
-						} else if (xhr.status === 413) {
-							file.failed = true
-							file.error_message = 'Size exceeds the maximum allowed file size.'
-						} else {
-							file.failed = true
-							file.error_message = xhr.status === 0 ? 'XMLHttpRequest Error' : `${xhr.status} : ${xhr.statusText}`
-
-							let error = null
-							try {
-								error = JSON.parse(xhr.responseText)
-							} catch (e) {
-								// pass
-							}
-							frappe.request.cleanup({}, error)
+			for (const file of this.$refs.file_input.files) {
+				this.add_file(file)
+			}
+		},
+		rename_file(file, new_filename) {
+			const new_file = new File([file.file_obj], new_filename, { type: file.file_obj.type });
+			this.remove_file(file)
+			this.add_file(new_file)
+		},
+		add_file(file) {
+			let xhr = new XMLHttpRequest()
+			xhr.onreadystatechange = () => {
+				if (xhr.readyState == XMLHttpRequest.DONE) {
+					if (xhr.status === 200) {
+						let response
+						try {
+							response = JSON.parse(xhr.responseText)
+						} catch (e) {
+							response = xhr.responseText
 						}
 
-						this.add_files(filtered_files)
-					}
-				}
+						const message = response.message
+						const filename_exists = message.filename_exists
+						const content_exists = message.content_exists
 
-				// send a request to validate each file
-				xhr.open('POST', '/api/method/cloud_storage.cloud_storage.overrides.file.validate_file_content', true)
-				xhr.setRequestHeader('Accept', 'application/json')
-				xhr.setRequestHeader('X-Frappe-CSRF-Token', frappe.csrf_token)
-				const form_data = new FormData()
-				form_data.append('file', file, file.name)
-				xhr.send(form_data)
+						// https://user-images.githubusercontent.com/13396535/251454386-d98b90d0-66ad-401c-8848-ca279900ed42.png
+						if (filename_exists) {
+							if (!content_exists) {
+								// existing filename, new hash: get decision from user
+								// - rename file
+								// - add version as latest
+								file.failed = true
+								file.error_message =
+									`A file already exists with the name '${file.name}'. You can either rename this file or override the existing file without renaming it.`
+							}
+						} else {
+							if (content_exists) {
+								// TODO: new file name, existing hash: show name of existing file instead
+							}
+						}
+					} else if (xhr.status === 403) {
+						file.failed = true
+						let response = JSON.parse(xhr.responseText)
+						file.error_message = `Not permitted. ${response._error_message || ''}`
+					} else if (xhr.status === 413) {
+						file.failed = true
+						file.error_message = 'Size exceeds the maximum allowed file size.'
+					} else {
+						file.failed = true
+						file.error_message = xhr.status === 0 ? 'XMLHttpRequest Error' : `${xhr.status} : ${xhr.statusText}`
+
+						let error = null
+						try {
+							error = JSON.parse(xhr.responseText)
+						} catch (e) {
+							// pass
+						}
+						frappe.request.cleanup({}, error)
+					}
+
+					this.add_files([file])
+				}
 			}
+
+			// send a request to validate each file
+			xhr.open('POST', '/api/method/cloud_storage.cloud_storage.overrides.file.validate_file_content', true)
+			xhr.setRequestHeader('Accept', 'application/json')
+			xhr.setRequestHeader('X-Frappe-CSRF-Token', frappe.csrf_token)
+			const form_data = new FormData()
+			form_data.append('file', file, file.name)
+			xhr.send(form_data)
 		},
 		remove_file(file) {
 			this.files = this.files.filter(f => f !== file)
@@ -379,9 +401,10 @@ export default {
 						doc: null,
 						progress: 0,
 						total: 0,
-						failed: false,
+						failed: file.failed || false,
 						request_succeeded: false,
-						error_message: null,
+						error_message: file.error_message || false,
+						in_rename: false,
 						uploading: false,
 						private: !this.make_attachments_public,
 					}
