@@ -108,7 +108,7 @@
 					@toggle_private="file.private = !file.private"
 					@toggle_optimize="file.optimize = !file.optimize"
 					@toggle_image_cropper="toggle_image_cropper(i)"
-					@rename_file="rename_file"/>
+					@rename_file="rename_file" />
 			</div>
 			<div class="flex align-center" v-if="show_upload_button && currently_uploading === -1">
 				<button class="btn btn-primary btn-sm margin-right" @click="upload_files">
@@ -276,7 +276,7 @@ export default {
 			}
 		},
 		rename_file(file, new_filename) {
-			const new_file = new File([file.file_obj], new_filename, { type: file.file_obj.type });
+			const new_file = new File([file.file_obj], new_filename, { type: file.file_obj.type })
 			this.remove_file(file)
 			this.add_file(new_file)
 		},
@@ -295,20 +295,22 @@ export default {
 						const message = response.message
 						const filename_exists = message.filename_exists
 						const content_exists = message.content_exists
+						const matched_files = message.matched_files
 
 						// https://user-images.githubusercontent.com/13396535/251454386-d98b90d0-66ad-401c-8848-ca279900ed42.png
-						if (filename_exists) {
-							if (!content_exists) {
-								// existing filename, new hash: get decision from user
-								// - rename file
-								// - add version as latest
-								file.failed = true
-								file.error_message =
-									`A file already exists with the name '${file.name}'. You can either rename this file or override the existing file without renaming it.`
-							}
-						} else {
-							if (content_exists) {
-								// TODO: new file name, existing hash: show name of existing file instead
+						if (filename_exists && !content_exists) {
+							// existing filename, new hash: get decision from user
+							// - rename file
+							// - add version as latest
+							file.failed = true
+							file.error_message = `A file already exists with the name '${file.name}'. You can either rename this file or override the existing file without renaming it.`
+						} else if (content_exists) {
+							// new/existing file name, existing hash: show name of existing file instead
+							file.failed = true
+							if (matched_files.length > 0) {
+								file.error_message = `A file with the same content already exists with the name '${matched_files[0]}'.`
+							} else {
+								file.error_message = `A file with the same content already exists.`
 							}
 						}
 					} else if (xhr.status === 403) {

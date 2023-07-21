@@ -395,6 +395,7 @@ def get_file_path(file: File, folder: str | None = None) -> str:
 
 @frappe.whitelist()
 def write_file(file: File) -> File:
+	# TODO: if a filename-conflict is found, update the document with a new version instead
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -450,7 +451,9 @@ def validate_file_content(*args, **kwargs):
 
 		# validate filename
 		file_name = file.filename
-		existing_files_by_name = frappe.get_all("File", filters={"file_name": file_name}, pluck="name")
+		existing_files_by_name = frappe.get_all(
+			"File", filters={"file_name": file_name}, pluck="file_name"
+		)
 		filename_exists = len(existing_files_by_name) > 0
 
 		# validate content hash
@@ -458,14 +461,16 @@ def validate_file_content(*args, **kwargs):
 		stripped_content = strip_exif_data(content, content_type)
 		content_hash = get_content_hash(stripped_content)
 		existing_files_by_hash = frappe.get_all(
-			"File", filters={"content_hash": content_hash}, pluck="name"
+			"File", filters={"content_hash": content_hash}, pluck="file_name"
 		)
 		content_exists = len(existing_files_by_hash) > 0
+
+		matched_files = list(set(existing_files_by_name + existing_files_by_hash))
 
 	return {
 		"filename_exists": filename_exists,
 		"content_exists": content_exists,
-		"matched_files": list(set(existing_files_by_name + existing_files_by_hash)),
+		"matched_files": matched_files,
 	}
 
 
