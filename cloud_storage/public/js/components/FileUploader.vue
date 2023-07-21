@@ -303,7 +303,7 @@ export default {
 							// - rename file
 							// - add version as latest
 							file.failed = true
-							file.error_message = `A file already exists with the name '${file.name}'. You can either rename this file or override the existing file without renaming it.`
+							file.error_message = `A file already exists with the name '${file.name}'. You can either rename this file to create a new record or continue to upload a new version to the existing file.`
 						} else if (content_exists) {
 							// new/existing file name, existing hash: show name of existing file instead
 							file.failed = true

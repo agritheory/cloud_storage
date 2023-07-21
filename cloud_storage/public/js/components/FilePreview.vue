@@ -34,12 +34,12 @@
 					><input type="checkbox" :checked="file.private" @change="$emit('toggle_private')" />Private</label
 				>
 			</div>
+
 			<div>
 				<span v-if="file.error_message" class="file-error text-danger">
 					{{ file.error_message }}
 				</span>
 			</div>
-			<!-- <div>{{ file }}</div> -->
 		</div>
 		<div class="file-actions">
 			<ProgressRing
