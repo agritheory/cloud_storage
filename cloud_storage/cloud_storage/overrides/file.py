@@ -4,14 +4,12 @@ import re
 import types
 import uuid
 from mimetypes import guess_type
-from typing import Optional
+from typing import Optional, Union
 
+import frappe
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.exceptions import ClientError
-from magic import from_buffer
-
-import frappe
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
 from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
@@ -19,13 +17,14 @@ from frappe.model.rename_doc import rename_doc
 from frappe.permissions import has_user_permission
 from frappe.utils import get_datetime, get_url
 from frappe.utils.image import strip_exif_data
+from magic import from_buffer
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
 
 class CustomFile(File):
-	def has_permission(self, ptype: str | None = None, user: str | None = None) -> bool:
+	def has_permission(self, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
 		has_access = False
 		user = frappe.session.user if not user else user
 		# check if public
@@ -66,7 +65,7 @@ class CustomFile(File):
 			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
 
 	def associate_files(
-		self, attached_to_doctype: str | None = None, attached_to_name: str | None = None
+		self, attached_to_doctype: Optional[str] = None, attached_to_name: Optional[str] = None
 	) -> None:
 		attached_to_doctype = attached_to_doctype or self.attached_to_doctype
 		attached_to_name = attached_to_name or self.attached_to_name
@@ -257,7 +256,7 @@ def is_safe_path(path: str) -> bool:
 
 
 @frappe.whitelist()
-def get_sharing_link(docname: str, reset: str | bool | None = None) -> str:
+def get_sharing_link(docname: str, reset: Optional[Union[str, bool]] = None) -> str:
 	if isinstance(reset, str):
 		reset = json.loads(reset)
 	doc = frappe.get_doc("File", docname)
@@ -384,7 +383,7 @@ def upload_file(file: File) -> File:
 	return file
 
 
-def get_file_path(file: File, folder: str | None = None) -> str:
+def get_file_path(file: File, folder: Optional[str] = None) -> str:
 	parent_doctype = file.attached_to_doctype or "No Doctype"
 
 	fragments = [
