@@ -37,6 +37,7 @@ class TestFile(FrappeTestCase):
 		# test file upload with autoname
 		file.attached_to_doctype = None
 		file.name = None
+		file.file_name = "test_file.png"
 		strip_chars.return_value = "test_file.png"
 		upload_file.return_value = file
 		write_file(file)
