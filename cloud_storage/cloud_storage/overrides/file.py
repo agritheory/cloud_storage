@@ -410,13 +410,24 @@ def write_file(file: File) -> File:
 		file.save_file_on_filesystem()
 		return file
 
-	existing_files = frappe.get_all(
+	# if a hash-conflict is found, update the existing document with a new file association
+	existing_file_hashes = frappe.get_all(
+		"File", filters={"content_hash": file.content_hash, "file_size": [">", 0]}, pluck="name"
+	)
+
+	if existing_file_hashes:
+		file_doc = frappe.get_doc("File", existing_file_hashes[0])
+		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
+		file_doc.save()
+		return
+
+	# if a filename-conflict is found, update the existing document with a new version instead
+	existing_file_names = frappe.get_all(
 		"File", filters={"file_name": file.file_name, "file_size": [">", 0]}, pluck="name"
 	)
 
-	if existing_files:
-		# if a filename-conflict is found, update the existing document with a new version instead
-		file_doc = frappe.get_doc("File", existing_files[0])
+	if existing_file_names:
+		file_doc = frappe.get_doc("File", existing_file_names[0])
 		file_doc.update(
 			{"content": file.content, "content_hash": file.content_hash, "content_type": file.content_type}
 		)
