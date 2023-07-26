@@ -474,6 +474,23 @@ export default {
 			return is_correct_type && valid_file_size
 		},
 		upload_files() {
+			const files_in_rename = this.files.filter(file => file.in_rename)
+			if (files_in_rename.length > 0) {
+				frappe.msgprint(__('Please complete renaming the files before uploading.'))
+
+				// reset the state of the modal's primary and secondary buttons
+				const primary_buttons = document.getElementsByClassName('btn-modal-primary')
+				const secondary_buttons = document.getElementsByClassName('btn-modal-secondary')
+				for (const primary_btn of primary_buttons) {
+					primary_btn.disabled = false
+				}
+				for (const secondary_btn of secondary_buttons) {
+					secondary_btn.disabled = false
+				}
+
+				return
+			}
+
 			if (this.show_file_browser) {
 				return this.upload_via_file_browser()
 			}

@@ -1,9 +1,10 @@
 import json
-from mimetypes import guess_type
 import os
 import re
 import types
 import uuid
+from mimetypes import guess_type
+from typing import Optional
 
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
@@ -64,8 +65,13 @@ class CustomFile(File):
 		if not self.is_folder and len(self.file_association) > 0:
 			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
 
-	def associate_files(self) -> None:
-		if not self.attached_to_doctype:
+	def associate_files(
+		self, attached_to_doctype: str | None = None, attached_to_name: str | None = None
+	) -> None:
+		attached_to_doctype = attached_to_doctype or self.attached_to_doctype
+		attached_to_name = attached_to_name or self.attached_to_name
+
+		if not attached_to_doctype:
 			return
 		if not self.file_url:
 			client = get_cloud_storage_client()
@@ -80,8 +86,8 @@ class CustomFile(File):
 			)
 		if associated_doc and associated_doc != self.name:
 			existing_file = frappe.get_doc("File", associated_doc)
-			existing_file.attached_to_doctype = self.attached_to_doctype
-			existing_file.attached_to_name = self.attached_to_name
+			existing_file.attached_to_doctype = attached_to_doctype
+			existing_file.attached_to_name = attached_to_name
 			self.content_hash = existing_file.content_hash
 			# if a File exists already where this association should be, we continue validating that File at this time
 			# the original File will then be removed in the after insert hook
@@ -89,15 +95,14 @@ class CustomFile(File):
 
 		existing_attachment = list(
 			filter(
-				lambda row: row.link_doctype == self.attached_to_doctype
-				and row.link_name == self.attached_to_name,
+				lambda row: row.link_doctype == attached_to_doctype and row.link_name == attached_to_name,
 				self.file_association,
 			)
 		)
 		if not existing_attachment:
 			self.append(
 				"file_association",
-				{"link_doctype": self.attached_to_doctype, "link_name": self.attached_to_name},
+				{"link_doctype": attached_to_doctype, "link_name": attached_to_name},
 			)
 		if associated_doc and associated_doc != self.name:
 			self.save()
@@ -375,6 +380,7 @@ def upload_file(file: File) -> File:
 	except Exception as e:
 		frappe.log_error("File Upload Error", e)
 	file.s3_key = path
+	file.save()
 	return file
 
 
@@ -395,7 +401,6 @@ def get_file_path(file: File, folder: str | None = None) -> str:
 
 @frappe.whitelist()
 def write_file(file: File) -> File:
-	# TODO: if a filename-conflict is found, update the document with a new version instead
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -405,6 +410,19 @@ def write_file(file: File) -> File:
 	if file.attached_to_doctype == "Data Import":
 		file.save_file_on_filesystem()
 		return file
+
+	existing_files = frappe.get_all(
+		"File", filters={"file_name": file.file_name, "file_size": [">", 0]}, pluck="name"
+	)
+
+	if existing_files:
+		# if a filename-conflict is found, update the existing document with a new version instead
+		file_doc = frappe.get_doc("File", existing_files[0])
+		file_doc.update(
+			{"content": file.content, "content_hash": file.content_hash, "content_type": file.content_type}
+		)
+		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
+		file = file_doc
 
 	if not file.name:
 		file.autoname()
