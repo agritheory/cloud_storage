@@ -245,7 +245,7 @@ def get_sharing_link(docname: str, reset: str | bool | None = None) -> str:
 	doc = frappe.get_doc("File", docname)
 	if doc.is_private:
 		frappe.has_permission(
-			doctype="File", ptype="share", doc=doc.name, user=frappe.session.user, throw=True
+			doctype="File", ptype="share", doc=doc, user=frappe.session.user, throw=True
 		)
 	if reset or not doc.sharing_link:
 		doc.db_set("sharing_link", str(uuid.uuid4().int >> 64))
@@ -326,7 +326,7 @@ def get_presigned_url(client, key: str):
 
 	if file.is_private:
 		frappe.has_permission(
-			doctype="File", ptype="read", doc=file.name, user=frappe.session.user, throw=True
+			doctype="File", ptype="read", doc=file, user=frappe.session.user, throw=True
 		)
 
 	return client.generate_presigned_url(
