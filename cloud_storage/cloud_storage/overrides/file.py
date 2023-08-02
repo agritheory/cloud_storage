@@ -18,6 +18,7 @@ from frappe.permissions import has_user_permission
 from frappe.utils import get_datetime, get_url
 from frappe.utils.image import strip_exif_data
 from magic import from_buffer
+from PIL import UnidentifiedImageError
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -486,8 +487,13 @@ def validate_file_content(*args, **kwargs):
 
 		# validate content hash
 		content = file.stream.read()
-		stripped_content = strip_exif_data(content, content_type)
-		content_hash = get_content_hash(stripped_content)
+
+		try:
+			stripped_content = strip_exif_data(content, content_type)
+			content_hash = get_content_hash(stripped_content)
+		except UnidentifiedImageError:
+			content_hash = get_content_hash(content)
+
 		existing_files_by_hash = frappe.get_all(
 			"File", filters={"content_hash": content_hash}, pluck="file_name"
 		)
