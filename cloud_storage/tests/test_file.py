@@ -16,8 +16,9 @@ from cloud_storage.cloud_storage.overrides.file import (
 class TestFile(FrappeTestCase):
 	@patch("cloud_storage.cloud_storage.overrides.file.upload_file")
 	@patch("cloud_storage.cloud_storage.overrides.file.strip_special_chars")
+	@patch("frappe.get_all")
 	@patch("frappe.conf")
-	def test_write_file(self, config, strip_chars, upload_file):
+	def test_write_file(self, config, get_all, strip_chars, upload_file):
 		file = MagicMock()
 
 		# test local fallback
@@ -40,6 +41,7 @@ class TestFile(FrappeTestCase):
 		file.file_name = "test_file.png"
 		strip_chars.return_value = "test_file.png"
 		upload_file.return_value = file
+		get_all.return_value = []
 		write_file(file)
 		assert file.autoname.call_count == 1
 		upload_file.assert_called_with(file)
