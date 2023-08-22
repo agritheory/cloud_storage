@@ -211,6 +211,10 @@ export default {
 	color: var(--text-light);
 }
 
+.file-error {
+	white-space: pre-line;
+}
+
 .file-actions {
 	width: 3rem;
 	flex-shrink: 0;

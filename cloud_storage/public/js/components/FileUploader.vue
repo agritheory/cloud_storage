@@ -303,14 +303,17 @@ export default {
 							// - rename file
 							// - add version as latest
 							file.failed = true
-							file.error_message = `A file already exists with the name '${file.name}'. You can either rename this file to create a new record or continue to upload a new version to the existing file.`
+							file.error_message = __('A file already exists with this name. You can either rename this file to create a new record or continue to upload a new version to the existing file.')
 						} else if (content_exists) {
 							// new/existing file name, existing hash: show name of existing file instead
 							file.failed = true
-							if (matched_files.length > 0) {
-								file.error_message = `A file with the same content already exists with the name '${matched_files[0]}'.`
+
+							if (filename_exists) {
+								file.error_message = __('This file already exists with the same name.')
+							} else if (matched_files.length > 0) {
+								file.error_message = `This file already exists with the name '${matched_files[0]}'. ` + __('You can continue with this name or exit.')
 							} else {
-								file.error_message = `A file with the same content already exists.`
+								file.error_message = __('A file with the same content already exists.')
 							}
 						}
 					} else if (xhr.status === 403) {
@@ -319,10 +322,10 @@ export default {
 						file.error_message = `Not permitted. ${response._error_message || ''}`
 					} else if (xhr.status === 413) {
 						file.failed = true
-						file.error_message = 'Size exceeds the maximum allowed file size.'
+						file.error_message = __('Size exceeds the maximum allowed file size.')
 					} else {
 						file.failed = true
-						file.error_message = xhr.status === 0 ? 'XMLHttpRequest Error' : `${xhr.status} : ${xhr.statusText}`
+						file.error_message = xhr.status === 0 ? __('XMLHttpRequest Error') : `${xhr.status} : ${xhr.statusText}`
 
 						let error = null
 						try {
@@ -589,10 +592,10 @@ export default {
 							file.error_message = `Not permitted. ${response._error_message || ''}`
 						} else if (xhr.status === 413) {
 							file.failed = true
-							file.error_message = 'Size exceeds the maximum allowed file size.'
+							file.error_message = __('Size exceeds the maximum allowed file size.')
 						} else {
 							file.failed = true
-							file.error_message = xhr.status === 0 ? 'XMLHttpRequest Error' : `${xhr.status} : ${xhr.statusText}`
+							file.error_message = xhr.status === 0 ? __('XMLHttpRequest Error') : `${xhr.status} : ${xhr.statusText}`
 
 							let error = null
 							try {
