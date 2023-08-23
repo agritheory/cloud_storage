@@ -29,8 +29,8 @@ class CustomFile(File):
 		# check if public
 		if self.owner == user:
 			has_access = True
-		elif self.attached_to_doctype and self.attached_to_name:
-			reference_doc = frappe.get_doc(self.attached_to_doctype, self.attached_to_name)
+		elif self.attached_to_doctype and self.attached_to_name:  # type: ignore
+			reference_doc = frappe.get_doc(self.attached_to_doctype, self.attached_to_name)  # type: ignore
 			has_access = reference_doc.has_permission()
 			if not has_access:
 				has_access = has_user_permission(self, user)
@@ -47,7 +47,7 @@ class CustomFile(File):
 		if (
 			frappe.session.user != "Administrator"
 			and "System Manager" not in user_roles
-			and (frappe.get_value(self.attached_to_doctype, self.attached_to_name, "docstatus") == 1)
+			and (frappe.get_value(self.attached_to_doctype, self.attached_to_name, "docstatus") == 1)  # type: ignore
 		):
 			frappe.throw(
 				_("This file is attached to a submitted document and cannot be deleted"),
@@ -64,9 +64,9 @@ class CustomFile(File):
 			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
 
 	def associate_files(self) -> None:
-		if not self.attached_to_doctype:
+		if not self.attached_to_doctype:  # type: ignore
 			return
-		if not self.file_url:
+		if not self.file_url:  # type: ignore
 			client = get_cloud_storage_client()
 			path = get_file_path(self, client.folder)
 			self.file_url = FILE_URL.format(path=path)
@@ -79,8 +79,8 @@ class CustomFile(File):
 			)
 		if associated_doc and associated_doc != self.name:
 			existing_file = frappe.get_doc("File", associated_doc)
-			existing_file.attached_to_doctype = self.attached_to_doctype
-			existing_file.attached_to_name = self.attached_to_name
+			existing_file.attached_to_doctype = self.attached_to_doctype  # type: ignore
+			existing_file.attached_to_name = self.attached_to_name  # type: ignore
 			self.content_hash = existing_file.content_hash
 			# if a File exists already where this association should be, we continue validating that File at this time
 			# the original File will then be removed in the after insert hook
@@ -88,15 +88,15 @@ class CustomFile(File):
 
 		existing_attachment = list(
 			filter(
-				lambda row: row.link_doctype == self.attached_to_doctype
-				and row.link_name == self.attached_to_name,
+				lambda row: row.link_doctype == self.attached_to_doctype  # type: ignore
+				and row.link_name == self.attached_to_name,  # type: ignore
 				self.file_association,
 			)
 		)
 		if not existing_attachment:
 			self.append(
 				"file_association",
-				{"link_doctype": self.attached_to_doctype, "link_name": self.attached_to_name},
+				{"link_doctype": self.attached_to_doctype, "link_name": self.attached_to_name},  # type: ignore
 			)
 		if associated_doc and associated_doc != self.name:
 			self.save()
@@ -111,7 +111,7 @@ class CustomFile(File):
 			self.validate_file_url()
 
 	def after_insert(self) -> File:
-		if self.attached_to_doctype and self.attached_to_name and not self.file_association:
+		if self.attached_to_doctype and self.attached_to_name and not self.file_association:  # type: ignore
 			if not self.content_hash and "/api/method/retrieve" in self.file_url:
 				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 			else:
@@ -140,7 +140,7 @@ class CustomFile(File):
 			return
 		for idx, row in enumerate(self.file_association):
 			if row.link_doctype == dt and row.link_name == dn:
-				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:
+				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:  # type: ignore
 					self.attached_to_doctype = self.file_association[
 						(idx + 1) % len(self.file_association)
 					].link_doctype
@@ -163,7 +163,7 @@ class CustomFile(File):
 
 		if self.get("content"):
 			self._content = self.content
-			if self.decode:
+			if self.decode:  # type: ignore
 				self._content = decode_file_content(self._content)
 				self.decode = False
 			# self.content = None # TODO: This needs to happen; make it happen somehow
