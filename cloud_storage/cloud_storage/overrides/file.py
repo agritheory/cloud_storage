@@ -416,7 +416,7 @@ def write_file(file: File) -> File:
 
 	# if a hash-conflict is found, update the existing document with a new file association
 	existing_file_hashes = frappe.get_all(
-		"File", filters={"content_hash": file.content_hash, "file_size": [">", 0]}, pluck="name"
+		"File", filters={"content_hash": file.content_hash}, pluck="name"
 	)
 
 	if existing_file_hashes:
@@ -426,9 +426,7 @@ def write_file(file: File) -> File:
 		return
 
 	# if a filename-conflict is found, update the existing document with a new version instead
-	existing_file_names = frappe.get_all(
-		"File", filters={"file_name": file.file_name, "file_size": [">", 0]}, pluck="name"
-	)
+	existing_file_names = frappe.get_all("File", filters={"file_name": file.file_name}, pluck="name")
 
 	if existing_file_names:
 		file_doc = frappe.get_doc("File", existing_file_names[0])
