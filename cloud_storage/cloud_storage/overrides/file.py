@@ -367,7 +367,7 @@ def get_sharing_url(client, key: str) -> str:
 def upload_file(file: File) -> File:
 	client = get_cloud_storage_client()
 	path = get_file_path(file, client.folder)
-	file.file_url = FILE_URL.format(path=path)
+	file.db_set("file_url", FILE_URL.format(path=path))
 	content_type = file.content_type or from_buffer(file.content, mime=True)
 	try:
 		response = client.put_object(
@@ -379,7 +379,7 @@ def upload_file(file: File) -> File:
 		frappe.throw(_("File Upload Failed. Please try again."))
 	except Exception as e:
 		frappe.log_error("File Upload Error", e)
-	file.s3_key = path
+	file.db_set("s3_key", path)
 	if not file.name:
 		file.save()
 	return file
@@ -436,8 +436,8 @@ def write_file(file: File) -> File:
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
 		file = file_doc
 
-	if not file.name:
-		file.autoname()
+	# if not file.name:
+	# 	file.autoname()
 
 	file.file_name = strip_special_chars(file.file_name.replace(" ", "_"))
 	file.flags.cloud_storage = True
