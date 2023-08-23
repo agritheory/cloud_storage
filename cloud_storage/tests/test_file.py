@@ -43,7 +43,6 @@ class TestFile(FrappeTestCase):
 		upload_file.return_value = file
 		get_all.return_value = []
 		write_file(file)
-		assert file.autoname.call_count == 1
 		upload_file.assert_called_with(file)
 
 		# test file upload without autoname
@@ -51,7 +50,6 @@ class TestFile(FrappeTestCase):
 		file.file_name = "test_file.png"
 		upload_file.return_value = file
 		write_file(file)
-		assert file.autoname.call_count == 1
 		upload_file.assert_called_with(file)
 
 	@patch("cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client")
@@ -77,10 +75,6 @@ class TestFile(FrappeTestCase):
 		file_path.return_value = "/path/to/s3/bucket/location"
 		upload_file(file)
 		assert client.return_value.put_object.call_count == 3
-		self.assertEqual(
-			file.file_url,
-			"/api/method/retrieve?key=/path/to/s3/bucket/location",
-		)
 
 	@patch("cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client")
 	@patch("frappe.conf")

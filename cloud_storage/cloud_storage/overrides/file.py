@@ -436,9 +436,6 @@ def write_file(file: File) -> File:
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
 		file = file_doc
 
-	# if not file.name:
-	# 	file.autoname()
-
 	file.file_name = strip_special_chars(file.file_name.replace(" ", "_"))
 	file.flags.cloud_storage = True
 	return upload_file(file)
