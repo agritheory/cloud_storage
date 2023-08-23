@@ -9,6 +9,7 @@ from typing import Optional, Union
 import frappe
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
@@ -31,8 +32,8 @@ class CustomFile(File):
 		# check if public
 		if self.owner == user:
 			has_access = True
-		elif self.attached_to_doctype and self.attached_to_name:
-			reference_doc = frappe.get_doc(self.attached_to_doctype, self.attached_to_name)
+		elif self.attached_to_doctype and self.attached_to_name:  # type: ignore
+			reference_doc = frappe.get_doc(self.attached_to_doctype, self.attached_to_name)  # type: ignore
 			has_access = reference_doc.has_permission()
 			if not has_access:
 				has_access = has_user_permission(self, user)
@@ -49,7 +50,7 @@ class CustomFile(File):
 		if (
 			frappe.session.user != "Administrator"
 			and "System Manager" not in user_roles
-			and (frappe.get_value(self.attached_to_doctype, self.attached_to_name, "docstatus") == 1)
+			and (frappe.get_value(self.attached_to_doctype, self.attached_to_name, "docstatus") == 1)  # type: ignore
 		):
 			frappe.throw(
 				_("This file is attached to a submitted document and cannot be deleted"),
@@ -73,7 +74,7 @@ class CustomFile(File):
 
 		if not attached_to_doctype:
 			return
-		if not self.file_url:
+		if not self.file_url:  # type: ignore
 			client = get_cloud_storage_client()
 			path = get_file_path(self, client.folder)
 			self.file_url = FILE_URL.format(path=path)
@@ -117,7 +118,7 @@ class CustomFile(File):
 			self.validate_file_url()
 
 	def after_insert(self) -> File:
-		if self.attached_to_doctype and self.attached_to_name and not self.file_association:
+		if self.attached_to_doctype and self.attached_to_name and not self.file_association:  # type: ignore
 			if not self.content_hash and "/api/method/retrieve" in self.file_url:
 				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 			else:
@@ -158,7 +159,7 @@ class CustomFile(File):
 			return
 		for idx, row in enumerate(self.file_association):
 			if row.link_doctype == dt and row.link_name == dn:
-				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:
+				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:  # type: ignore
 					self.attached_to_doctype = self.file_association[
 						(idx + 1) % len(self.file_association)
 					].link_doctype
@@ -181,7 +182,7 @@ class CustomFile(File):
 
 		if self.get("content"):
 			self._content = self.content
-			if self.decode:
+			if self.decode:  # type: ignore
 				self._content = decode_file_content(self._content)
 				self.decode = False
 			# self.content = None # TODO: This needs to happen; make it happen somehow
@@ -263,7 +264,7 @@ def get_sharing_link(docname: str, reset: Optional[Union[str, bool]] = None) -> 
 	doc = frappe.get_doc("File", docname)
 	if doc.is_private:
 		frappe.has_permission(
-			doctype="File", ptype="share", doc=doc.name, user=frappe.session.user, throw=True
+			doctype="File", ptype="share", doc=doc, user=frappe.session.user, throw=True
 		)
 	if reset or not doc.sharing_link:
 		doc.db_set("sharing_link", str(uuid.uuid4().int >> 64))
@@ -285,8 +286,9 @@ def get_cloud_storage_client():
 		aws_secret_access_key=config.get("secret"),
 		region_name=config.get("region"),
 	)
-
-	client = session.client("s3", endpoint_url=config.get("endpoint_url"))
+	client = session.client(
+		"s3", endpoint_url=config.get("endpoint_url"), config=Config(signature_version="s3v4")
+	)
 	client.bucket = config.get("bucket")
 	client.folder = config.get("folder", None)
 	client.expiration = config.get("expiration", 120)
@@ -344,7 +346,7 @@ def get_presigned_url(client, key: str):
 
 	if file.is_private:
 		frappe.has_permission(
-			doctype="File", ptype="read", doc=file.name, user=frappe.session.user, throw=True
+			doctype="File", ptype="read", doc=file, user=frappe.session.user, throw=True
 		)
 
 	return client.generate_presigned_url(
