@@ -78,21 +78,24 @@ class CustomFile(File):
 			client = get_cloud_storage_client()
 			path = get_file_path(self, client.folder)
 			self.file_url = FILE_URL.format(path=path)
-		if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
-			associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
-		else:
-			associated_doc = frappe.get_value(
-				"File",
-				{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
-			)
-		if associated_doc and associated_doc != self.name:
-			existing_file = frappe.get_doc("File", associated_doc)
-			existing_file.attached_to_doctype = attached_to_doctype
-			existing_file.attached_to_name = attached_to_name
-			self.content_hash = existing_file.content_hash
-			# if a File exists already where this association should be, we continue validating that File at this time
-			# the original File will then be removed in the after insert hook
-			self = existing_file
+
+		associated_doc = None
+		if not self.flags.skip_hash_check:
+			if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
+				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
+			else:
+				associated_doc = frappe.get_value(
+					"File",
+					{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
+				)
+			if associated_doc and associated_doc != self.name:
+				existing_file = frappe.get_doc("File", associated_doc)
+				existing_file.attached_to_doctype = attached_to_doctype
+				existing_file.attached_to_name = attached_to_name
+				self.content_hash = existing_file.content_hash
+				# if a File exists already where this association should be, we continue validating that File at this time
+				# the original File will then be removed in the after insert hook
+				self = existing_file
 
 		existing_attachment = list(
 			filter(
@@ -105,6 +108,7 @@ class CustomFile(File):
 				"file_association",
 				{"link_doctype": attached_to_doctype, "link_name": attached_to_name},
 			)
+
 		if associated_doc and associated_doc != self.name:
 			self.save()
 
@@ -119,6 +123,8 @@ class CustomFile(File):
 
 	def after_insert(self) -> File:
 		if self.attached_to_doctype and self.attached_to_name and not self.file_association:  # type: ignore
+			if self.flags.skip_hash_check:
+				return
 			if not self.content_hash and "/api/method/retrieve" in self.file_url:
 				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
 			else:
@@ -132,13 +138,13 @@ class CustomFile(File):
 					"file_url", ""
 				)  # this is done to prevent deletion of the remote file with the delete_file hook
 				rename_doc(
-					self.doctype,
-					self.name,
-					associated_doc,
-					merge=True,
+					doctype=self.doctype,
+					old=self.name,
+					new=associated_doc,
 					force=True,
-					show_alert=False,
+					merge=True,
 					ignore_permissions=True,
+					show_alert=False,
 				)
 
 	def add_file_version(self, version_id):
@@ -403,7 +409,7 @@ def get_file_path(file: File, folder: Optional[str] = None) -> str:
 
 
 @frappe.whitelist()
-def write_file(file: File) -> File:
+def write_file(file: File, skip_hash_check: bool = False) -> File:
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -415,15 +421,16 @@ def write_file(file: File) -> File:
 		return file
 
 	# if a hash-conflict is found, update the existing document with a new file association
-	existing_file_hashes = frappe.get_all(
-		"File", filters={"content_hash": file.content_hash}, pluck="name"
-	)
+	if not skip_hash_check:
+		existing_file_hashes = frappe.get_all(
+			"File", filters={"content_hash": file.content_hash}, pluck="name"
+		)
 
-	if existing_file_hashes:
-		file_doc = frappe.get_doc("File", existing_file_hashes[0])
-		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
-		file_doc.save()
-		return
+		if existing_file_hashes:
+			file_doc: File = frappe.get_doc("File", existing_file_hashes[0])
+			file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
+			file_doc.save()
+			return file_doc
 
 	# if a filename-conflict is found, update the existing document with a new version instead
 	existing_file_names = frappe.get_all("File", filters={"file_name": file.file_name}, pluck="name")
