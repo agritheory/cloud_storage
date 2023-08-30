@@ -346,8 +346,9 @@ def get_presigned_url(client, key: str):
 	expiration = client.expiration if file.is_private else None
 
 	if file.is_private:
+		file_doc = frappe.get_doc("File", file.name)
 		frappe.has_permission(
-			doctype="File", ptype="read", doc=file, user=frappe.session.user, throw=True
+			doctype="File", ptype="read", doc=file_doc, user=frappe.session.user, throw=True
 		)
 
 	return client.generate_presigned_url(
