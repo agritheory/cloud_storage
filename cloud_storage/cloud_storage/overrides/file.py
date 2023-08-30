@@ -17,9 +17,10 @@ from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
 from frappe.model.rename_doc import rename_doc
 from frappe.permissions import has_user_permission
 from frappe.utils import get_datetime, get_url
-from frappe.utils.image import strip_exif_data
+from frappe.utils.image import optimize_image, strip_exif_data
 from magic import from_buffer
 from PIL import UnidentifiedImageError
+from werkzeug.datastructures import FileStorage
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -402,6 +403,14 @@ def get_file_path(file: File, folder: Optional[str] = None) -> str:
 	return path
 
 
+def get_file_content_hash(content, content_type):
+	try:
+		stripped_content = strip_exif_data(content, content_type)
+		return get_content_hash(stripped_content)
+	except UnidentifiedImageError:
+		return get_content_hash(content)
+
+
 @frappe.whitelist()
 def write_file(file: File) -> File:
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
@@ -420,10 +429,10 @@ def write_file(file: File) -> File:
 	)
 
 	if existing_file_hashes:
-		file_doc = frappe.get_doc("File", existing_file_hashes[0])
+		file_doc: File = frappe.get_doc("File", existing_file_hashes[0])
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
 		file_doc.save()
-		return
+		return file_doc
 
 	# if a filename-conflict is found, update the existing document with a new version instead
 	existing_file_names = frappe.get_all("File", filters={"file_name": file.file_name}, pluck="name")
@@ -468,12 +477,11 @@ def delete_file(file: File, **kwargs) -> File:
 
 @frappe.whitelist()
 def validate_file_content(*args, **kwargs):
-	filename_exists = content_exists = False
-	existing_files_by_name, existing_files_by_hash = [], []
-
+	matched_files = []
 	files = frappe.request.files
+
 	if "file" in files:
-		file = files["file"]
+		file: FileStorage = files["file"]
 		content_type = guess_type(file.filename)[0]
 
 		# validate filename
@@ -481,27 +489,30 @@ def validate_file_content(*args, **kwargs):
 		existing_files_by_name = frappe.get_all(
 			"File", filters={"file_name": file_name}, pluck="file_name"
 		)
-		filename_exists = len(existing_files_by_name) > 0
 
 		# validate content hash
+		file.stream.seek(0)
 		content = file.stream.read()
-
-		try:
-			stripped_content = strip_exif_data(content, content_type)
-			content_hash = get_content_hash(stripped_content)
-		except UnidentifiedImageError:
-			content_hash = get_content_hash(content)
+		content_hash = get_file_content_hash(content, content_type)
 
 		existing_files_by_hash = frappe.get_all(
 			"File", filters={"content_hash": content_hash}, pluck="file_name"
 		)
-		content_exists = len(existing_files_by_hash) > 0
 
+		# if no files are found by name or hash, and if the file is an image, match against optimized content
+		if not existing_files_by_hash and content_type.startswith("image/"):
+			optimized_content = optimize_image(content, content_type)
+			optimized_content_hash = get_file_content_hash(optimized_content, content_type)
+			existing_files_by_hash = frappe.get_all(
+				"File", filters={"content_hash": optimized_content_hash}, pluck="file_name"
+			)
+
+		# build a list of matched files
 		matched_files = list(set(existing_files_by_name + existing_files_by_hash))
 
 	return {
-		"filename_exists": filename_exists,
-		"content_exists": content_exists,
+		"filename_exists": len(existing_files_by_name) > 0,
+		"content_exists": len(existing_files_by_hash) > 0,
 		"matched_files": matched_files,
 	}
 
