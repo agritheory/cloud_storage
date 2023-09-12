@@ -28,23 +28,7 @@ URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
 class CustomFile(File):
 	def has_permission(self, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
-		has_access = False
-		user = frappe.session.user if not user else user
-		# check if public
-		if self.owner == user:
-			has_access = True
-		elif self.attached_to_doctype and self.attached_to_name:  # type: ignore
-			reference_doc = frappe.get_doc(self.attached_to_doctype, self.attached_to_name)  # type: ignore
-			has_access = reference_doc.has_permission()
-			if not has_access:
-				has_access = has_user_permission(self, user)
-		# elif True:
-		# Check "shared with"  including parent 'folder' to allow access
-		# ...
-		else:
-			has_access = bool(frappe.has_permission("File", "read", user=user))
-
-		return has_access
+		return has_permission(self, ptype, user)
 
 	def on_trash(self) -> None:
 		user_roles = frappe.get_roles(frappe.session.user)
@@ -244,6 +228,26 @@ class CustomFile(File):
 			frappe.throw(_("File name cannot have {0}").format(os.path.sep))
 
 		return file_path
+
+
+def has_permission(doc, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
+	has_access = False
+	user = frappe.session.user if not user else user
+	# check if public
+	if doc.owner == user:
+		has_access = True
+	elif doc.attached_to_doctype and doc.attached_to_name:  # type: ignore
+		reference_doc = frappe.get_doc(doc.attached_to_doctype, doc.attached_to_name)  # type: ignore
+		has_access = reference_doc.has_permission()
+		if not has_access:
+			has_access = has_user_permission(doc, user)
+	# elif True:
+	# Check "shared with"  including parent 'folder' to allow access
+	# ...
+	else:
+		has_access = bool(frappe.has_permission(doc.doctype, ptype, user=user))
+
+	return has_access
 
 
 def is_safe_path(path: str) -> bool:

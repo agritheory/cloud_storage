@@ -85,10 +85,10 @@ doctype_js = {"File": "public/js/file.js"}
 # permission_query_conditions = {
 # 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
 # }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+
+has_permission = {
+	"File": "cloud_storage.cloud_storage.overrides.file.has_permission",
+}
 
 # DocType Class
 # ---------------
@@ -140,7 +140,7 @@ override_doctype_class = {"File": "cloud_storage.cloud_storage.overrides.file.Cu
 override_whitelisted_methods = {
 	"retrieve": "cloud_storage.cloud_storage.overrides.file.retrieve",
 	"share": "cloud_storage.cloud_storage.overrides.file.share",
-	"frappe.desk.form.utils.remove_attach": "cloud_storage.cloud_storage.overrides.file.remove_attach"
+	"frappe.desk.form.utils.remove_attach": "cloud_storage.cloud_storage.overrides.file.remove_attach",
 }
 
 # each overriding function accepts a `data` argument;
