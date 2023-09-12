@@ -54,8 +54,8 @@ class CustomFile(File):
 	def associate_files(
 		self, attached_to_doctype: Optional[str] = None, attached_to_name: Optional[str] = None
 	) -> None:
-		attached_to_doctype = attached_to_doctype or self.attached_to_doctype
-		attached_to_name = attached_to_name or self.attached_to_name
+		attached_to_doctype = attached_to_doctype or self.attached_to_doctype  # type: ignore
+		attached_to_name = attached_to_name or self.attached_to_name  # type: ignore
 
 		if not attached_to_doctype:
 			return
