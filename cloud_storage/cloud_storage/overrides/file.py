@@ -426,7 +426,7 @@ def get_file_content_hash(content, content_type):
 
 
 @frappe.whitelist()
-def write_file(file: File) -> File:
+def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -461,7 +461,10 @@ def write_file(file: File) -> File:
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
 		file = file_doc
 
-	file.file_name = strip_special_chars(file.file_name.replace(" ", "_"))
+	if remove_spaces_in_file_name:
+		file.file_name = file.file_name.replace(" ", "_")
+
+	file.file_name = strip_special_chars(file.file_name)
 	file.flags.cloud_storage = True
 	return upload_file(file)
 
