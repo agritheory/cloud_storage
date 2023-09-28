@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "version",
+  "user",
   "timestamp"
  ],
  "fields": [
@@ -18,15 +19,22 @@
   },
   {
    "fieldname": "timestamp",
-   "fieldtype": "Date",
+   "fieldtype": "Datetime",
    "in_list_view": 1,
    "label": "Timestamp",
    "read_only": 1
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "User",
+   "options": "User"
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2023-07-07 16:06:07.225304",
+ "modified": "2023-09-27 23:45:54.628246",
  "modified_by": "Administrator",
  "module": "Cloud Storage",
  "name": "File Version",

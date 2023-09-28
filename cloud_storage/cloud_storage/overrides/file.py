@@ -88,7 +88,12 @@ class CustomFile(File):
 		if not existing_attachment:
 			self.append(
 				"file_association",
-				{"link_doctype": attached_to_doctype, "link_name": attached_to_name},
+				{
+					"link_doctype": attached_to_doctype,
+					"link_name": attached_to_name,
+					"user": frappe.session.user,
+					"timestamp": get_datetime(),
+				},
 			)
 		if associated_doc and associated_doc != self.name:
 			self.save()
@@ -134,6 +139,7 @@ class CustomFile(File):
 			{
 				"idx": 0,
 				"version": str(version_id),
+				"user": frappe.session.user,
 				"timestamp": get_datetime(),
 			},
 		)
