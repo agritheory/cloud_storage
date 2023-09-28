@@ -142,17 +142,20 @@ class CustomFile(File):
 		if len(self.file_association) <= 1:
 			self.delete()
 			return
+		to_remove = []
 		for idx, row in enumerate(self.file_association):
 			if row.link_doctype == dt and row.link_name == dn:
+				to_remove.append(row)
 				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:  # type: ignore
-					self.attached_to_doctype = self.file_association[
-						(idx + 1) % len(self.file_association)
-					].link_doctype
-					self.attached_to_name = self.file_association[
-						(idx + 1) % len(self.file_association)
-					].link_name
-				frappe.delete_doc("File Association", row.name)
-				del row
+					# calculate the index of the next file association in the list, looping to the start if already at the end
+					next_idx = (idx + 1) % len(self.file_association)
+					next_file_association = self.file_association[next_idx]
+					self.attached_to_doctype = next_file_association.link_doctype
+					self.attached_to_name = next_file_association.link_name
+		for row in to_remove:
+			self.remove(row)
+		for idx, association in enumerate(self.file_association, start=1):
+			association.idx = idx
 		self.save()
 
 	@property
