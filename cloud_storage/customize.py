@@ -15,6 +15,8 @@ def load_customizations():
 	for file in files:
 		customizations = json.loads(Path(file).read_text())
 		for field in customizations.get("custom_fields"):
+			if field.get("module") != "Cloud Storage":
+				continue
 			existing_field = frappe.get_value("Custom Field", field.get("name"))
 			custom_field = (
 				frappe.get_doc("Custom Field", field.get("name"))
@@ -27,6 +29,8 @@ def load_customizations():
 			custom_field.flags.ignore_version = True
 			custom_field.save()
 		for prop in customizations.get("property_setters"):
+			if field.get("module") != "Cloud Storage":
+				continue
 			property_setter = frappe.get_doc(
 				{
 					"name": prop.get("name"),
