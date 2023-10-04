@@ -1,5 +1,6 @@
 {
 	"name": "@agritheory/cloud_storage",
+	"type": "module",
 	"dependencies": {
 		"madr": "^3.0.0"
 	},
