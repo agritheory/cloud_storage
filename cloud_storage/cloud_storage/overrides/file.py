@@ -132,12 +132,9 @@ class CustomFile(File):
 				)
 
 	def add_file_version(self, version_id):
-		for row in self.versions:
-			row.idx = row.idx + 1
 		self.append(
 			"versions",
 			{
-				"idx": 0,
 				"version": str(version_id),
 				"user": frappe.session.user,
 				"timestamp": get_datetime(),
