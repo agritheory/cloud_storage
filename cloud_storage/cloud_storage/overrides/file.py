@@ -3,44 +3,32 @@ import os
 import re
 import types
 import uuid
+from mimetypes import guess_type
+from typing import Optional, Union
 
+import frappe
 from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from magic import from_buffer
-
-import frappe
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
-from frappe.core.doctype.file.utils import decode_file_content
+from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
 from frappe.model.rename_doc import rename_doc
 from frappe.permissions import has_user_permission
-from frappe.utils import get_url
+from frappe.utils import get_datetime, get_url
+from frappe.utils.image import optimize_image, strip_exif_data
+from magic import from_buffer
+from PIL import UnidentifiedImageError
+from werkzeug.datastructures import FileStorage
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
 
 class CustomFile(File):
-	def has_permission(self, ptype: str | None = None, user: str | None = None) -> bool:
-		has_access = False
-		user = frappe.session.user if not user else user
-		# check if public
-		if self.owner == user:
-			has_access = True
-		elif self.attached_to_doctype and self.attached_to_name:  # type: ignore
-			reference_doc = frappe.get_doc(self.attached_to_doctype, self.attached_to_name)  # type: ignore
-			has_access = reference_doc.has_permission()
-			if not has_access:
-				has_access = has_user_permission(self, user)
-		# elif True:
-		# Check "shared with"  including parent 'folder' to allow access
-		# ...
-		else:
-			has_access = bool(frappe.has_permission("File", "read", user=user))
-
-		return has_access
+	def has_permission(self, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
+		return has_permission(self, ptype, user)
 
 	def on_trash(self) -> None:
 		user_roles = frappe.get_roles(frappe.session.user)
@@ -63,8 +51,13 @@ class CustomFile(File):
 		if not self.is_folder and len(self.file_association) > 0:
 			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
 
-	def associate_files(self) -> None:
-		if not self.attached_to_doctype:  # type: ignore
+	def associate_files(
+		self, attached_to_doctype: Optional[str] = None, attached_to_name: Optional[str] = None
+	) -> None:
+		attached_to_doctype = attached_to_doctype or self.attached_to_doctype  # type: ignore
+		attached_to_name = attached_to_name or self.attached_to_name  # type: ignore
+
+		if not attached_to_doctype:
 			return
 		if not self.file_url:  # type: ignore
 			client = get_cloud_storage_client()
@@ -79,8 +72,8 @@ class CustomFile(File):
 			)
 		if associated_doc and associated_doc != self.name:
 			existing_file = frappe.get_doc("File", associated_doc)
-			existing_file.attached_to_doctype = self.attached_to_doctype  # type: ignore
-			existing_file.attached_to_name = self.attached_to_name  # type: ignore
+			existing_file.attached_to_doctype = attached_to_doctype
+			existing_file.attached_to_name = attached_to_name
 			self.content_hash = existing_file.content_hash
 			# if a File exists already where this association should be, we continue validating that File at this time
 			# the original File will then be removed in the after insert hook
@@ -88,15 +81,19 @@ class CustomFile(File):
 
 		existing_attachment = list(
 			filter(
-				lambda row: row.link_doctype == self.attached_to_doctype  # type: ignore
-				and row.link_name == self.attached_to_name,  # type: ignore
+				lambda row: row.link_doctype == attached_to_doctype and row.link_name == attached_to_name,
 				self.file_association,
 			)
 		)
 		if not existing_attachment:
 			self.append(
 				"file_association",
-				{"link_doctype": self.attached_to_doctype, "link_name": self.attached_to_name},  # type: ignore
+				{
+					"link_doctype": attached_to_doctype,
+					"link_name": attached_to_name,
+					"user": frappe.session.user,
+					"timestamp": get_datetime(),
+				},
 			)
 		if associated_doc and associated_doc != self.name:
 			self.save()
@@ -134,21 +131,34 @@ class CustomFile(File):
 					ignore_permissions=True,
 				)
 
+	def add_file_version(self, version_id):
+		self.append(
+			"versions",
+			{
+				"version": str(version_id),
+				"user": frappe.session.user,
+				"timestamp": get_datetime(),
+			},
+		)
+
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
 			self.delete()
 			return
+		to_remove = []
 		for idx, row in enumerate(self.file_association):
 			if row.link_doctype == dt and row.link_name == dn:
+				to_remove.append(row)
 				if row.link_doctype == self.attached_to_doctype and row.link_name == self.attached_to_name:  # type: ignore
-					self.attached_to_doctype = self.file_association[
-						(idx + 1) % len(self.file_association)
-					].link_doctype
-					self.attached_to_name = self.file_association[
-						(idx + 1) % len(self.file_association)
-					].link_name
-				frappe.delete_doc("File Association", row.name)
-				del row
+					# calculate the index of the next file association in the list, looping to the start if already at the end
+					next_idx = (idx + 1) % len(self.file_association)
+					next_file_association = self.file_association[next_idx]
+					self.attached_to_doctype = next_file_association.link_doctype
+					self.attached_to_name = next_file_association.link_name
+		for row in to_remove:
+			self.remove(row)
+		for idx, association in enumerate(self.file_association, start=1):
+			association.idx = idx
 		self.save()
 
 	@property
@@ -226,6 +236,26 @@ class CustomFile(File):
 		return file_path
 
 
+def has_permission(doc, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
+	has_access = False
+	user = frappe.session.user if not user else user
+	# check if public
+	if doc.owner == user:
+		has_access = True
+	elif doc.attached_to_doctype and doc.attached_to_name:  # type: ignore
+		reference_doc = frappe.get_doc(doc.attached_to_doctype, doc.attached_to_name)  # type: ignore
+		has_access = reference_doc.has_permission()
+		if not has_access:
+			has_access = has_user_permission(doc, user)
+	# elif True:
+	# Check "shared with"  including parent 'folder' to allow access
+	# ...
+	else:
+		has_access = bool(frappe.has_permission(doc.doctype, ptype, user=user))
+
+	return has_access
+
+
 def is_safe_path(path: str) -> bool:
 	if path.startswith(URL_PREFIXES):
 		return True
@@ -239,7 +269,7 @@ def is_safe_path(path: str) -> bool:
 
 
 @frappe.whitelist()
-def get_sharing_link(docname: str, reset: str | bool | None = None) -> str:
+def get_sharing_link(docname: str, reset: Optional[Union[str, bool]] = None) -> str:
 	if isinstance(reset, str):
 		reset = json.loads(reset)
 	doc = frappe.get_doc("File", docname)
@@ -275,6 +305,7 @@ def get_cloud_storage_client():
 	client.expiration = config.get("expiration", 120)
 	client.get_presigned_url = types.MethodType(get_presigned_url, client)
 	client.get_sharing_url = types.MethodType(get_sharing_url, client)
+
 	return client
 
 
@@ -325,8 +356,9 @@ def get_presigned_url(client, key: str):
 	expiration = client.expiration if file.is_private else None
 
 	if file.is_private:
+		file_doc = frappe.get_doc("File", file.name)
 		frappe.has_permission(
-			doctype="File", ptype="read", doc=file, user=frappe.session.user, throw=True
+			doctype="File", ptype="read", doc=file_doc, user=frappe.session.user, throw=True
 		)
 
 	return client.generate_presigned_url(
@@ -349,19 +381,25 @@ def get_sharing_url(client, key: str) -> str:
 def upload_file(file: File) -> File:
 	client = get_cloud_storage_client()
 	path = get_file_path(file, client.folder)
-	file.file_url = FILE_URL.format(path=path)
+	file.db_set("file_url", FILE_URL.format(path=path))
 	content_type = file.content_type or from_buffer(file.content, mime=True)
 	try:
-		client.put_object(Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type)
+		response = client.put_object(
+			Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type
+		)
+		if response.get("VersionId"):
+			file.add_file_version(response.get("VersionId"))
 	except S3UploadFailedError:
 		frappe.throw(_("File Upload Failed. Please try again."))
 	except Exception as e:
 		frappe.log_error("File Upload Error", e)
-	file.s3_key = path
+	file.db_set("s3_key", path)
+	if not file.name:
+		file.save()
 	return file
 
 
-def get_file_path(file: File, folder: str | None = None) -> str:
+def get_file_path(file: File, folder: Optional[str] = None) -> str:
 	parent_doctype = file.attached_to_doctype or "No Doctype"
 
 	fragments = [
@@ -376,8 +414,16 @@ def get_file_path(file: File, folder: str | None = None) -> str:
 	return path
 
 
+def get_file_content_hash(content, content_type):
+	try:
+		stripped_content = strip_exif_data(content, content_type)
+		return get_content_hash(stripped_content)
+	except UnidentifiedImageError:
+		return get_content_hash(content)
+
+
 @frappe.whitelist()
-def write_file(file: File) -> File:
+def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -388,10 +434,34 @@ def write_file(file: File) -> File:
 		file.save_file_on_filesystem()
 		return file
 
-	if not file.name:
-		file.autoname()
+	# if a hash-conflict is found, update the existing document with a new file association
+	existing_file_hashes = frappe.get_all(
+		"File", filters={"name": ["!=", file.name], "content_hash": file.content_hash}, pluck="name"
+	)
 
-	file.file_name = strip_special_chars(file.file_name.replace(" ", "_"))
+	if existing_file_hashes:
+		file_doc: File = frappe.get_doc("File", existing_file_hashes[0])
+		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
+		file_doc.save()
+		return file_doc
+
+	# if a filename-conflict is found, update the existing document with a new version instead
+	existing_file_names = frappe.get_all(
+		"File", filters={"name": ["!=", file.name], "file_name": file.file_name}, pluck="name"
+	)
+
+	if existing_file_names:
+		file_doc = frappe.get_doc("File", existing_file_names[0])
+		file_doc.update(
+			{"content": file.content, "content_hash": file.content_hash, "content_type": file.content_type}
+		)
+		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
+		file = file_doc
+
+	if remove_spaces_in_file_name:
+		file.file_name = file.file_name.replace(" ", "_")
+
+	file.file_name = strip_special_chars(file.file_name)
 	file.flags.cloud_storage = True
 	return upload_file(file)
 
@@ -419,6 +489,48 @@ def delete_file(file: File, **kwargs) -> File:
 				frappe.log_error(str(e), "Cloud Storage Error: Cloud not delete file")
 
 	return file
+
+
+@frappe.whitelist()
+def validate_file_content(*args, **kwargs):
+	matched_files = []
+	files = frappe.request.files
+
+	if "file" in files:
+		file: FileStorage = files["file"]
+		content_type = guess_type(file.filename)[0]
+
+		# validate filename
+		file_name = file.filename
+		existing_files_by_name = frappe.get_all(
+			"File", filters={"file_name": file_name}, pluck="file_name"
+		)
+
+		# validate content hash
+		file.stream.seek(0)
+		content = file.stream.read()
+		content_hash = get_file_content_hash(content, content_type)
+
+		existing_files_by_hash = frappe.get_all(
+			"File", filters={"content_hash": content_hash}, pluck="file_name"
+		)
+
+		# if no files are found by name or hash, and if the file is an image, match against optimized content
+		if not existing_files_by_hash and content_type.startswith("image/"):
+			optimized_content = optimize_image(content, content_type)
+			optimized_content_hash = get_file_content_hash(optimized_content, content_type)
+			existing_files_by_hash = frappe.get_all(
+				"File", filters={"content_hash": optimized_content_hash}, pluck="file_name"
+			)
+
+		# build a list of matched files
+		matched_files = list(set(existing_files_by_name + existing_files_by_hash))
+
+	return {
+		"filename_exists": len(existing_files_by_name) > 0,
+		"content_exists": len(existing_files_by_hash) > 0,
+		"matched_files": matched_files,
+	}
 
 
 @frappe.whitelist(allow_guest=True)
