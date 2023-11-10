@@ -265,7 +265,9 @@ export default {
 		},
 		dropfiles(e) {
 			this.is_dragging = false
-			this.add_files(e.dataTransfer.files)
+			for (const file of e.dataTransfer.files) {
+				this.add_file(file)
+			}
 		},
 		browse_files() {
 			this.$refs.file_input.click()
@@ -303,7 +305,9 @@ export default {
 							// - rename file
 							// - add version as latest
 							file.failed = true
-							file.error_message = __('A file already exists with this name. You can either rename this file to create a new record or continue to upload a new version to the existing file.')
+							file.error_message = __(
+								'A file already exists with this name. You can either rename this file to create a new record or continue to upload a new version to the existing file.'
+							)
 						} else if (content_exists) {
 							// new/existing file name, existing hash: show name of existing file instead
 							file.failed = true
@@ -311,7 +315,9 @@ export default {
 							if (filename_exists) {
 								file.error_message = __('This file already exists with the same name.')
 							} else if (matched_files.length > 0) {
-								file.error_message = `This file already exists with the name '${matched_files[0]}'. ` + __('You can continue with this name or exit.')
+								file.error_message =
+									`This file already exists with the name '${matched_files[0]}'. ` +
+									__('You can continue with this name or exit.')
 							} else {
 								file.error_message = __('A file with the same content already exists.')
 							}
@@ -660,7 +666,7 @@ export default {
 			capture.submit(data_urls => {
 				data_urls.forEach(data_url => {
 					let filename = `capture_${frappe.datetime.now_datetime().replaceAll(/[: -]/g, '_')}.png`
-					this.url_to_file(data_url, filename, 'image/png').then(file => this.add_files([file]))
+					this.url_to_file(data_url, filename, 'image/png').then(file => this.add_file(file))
 				})
 			})
 		},
