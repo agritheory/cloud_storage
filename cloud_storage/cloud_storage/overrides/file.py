@@ -283,7 +283,7 @@ def get_sharing_link(docname: str, reset: Optional[Union[str, bool]] = None) -> 
 
 
 def strip_special_chars(file_name: str) -> str:
-	regex = re.compile("[^0-9a-zA-Z._-]")
+	regex = re.compile(r"[^\w\s_.()-]")
 	return regex.sub("", file_name)
 
 
