@@ -167,6 +167,7 @@ class CustomFile(File):
 			return self.file_url.startswith(URL_PREFIXES)
 		return not self.content
 
+	@frappe.whitelist()
 	def get_content(self) -> bytes:
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))
