@@ -1,6 +1,8 @@
 {
 	"name": "@agritheory/cloud_storage",
 	"dependencies": {
+		"docx-preview": "^0.3.0",
+		"jszip": "^3.10.1",
 		"madr": "^3.0.0"
 	},
 	"release": {

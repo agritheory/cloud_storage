@@ -7,6 +7,27 @@ frappe.ui.form.on('File', {
 				frm.add_custom_button(__('Reset Sharing Link', 'Share'), () => get_sharing_link(frm, true))
 			}
 		}
+
+		let file_extension = frm.doc.file_type.toLowerCase()
+		if (['doc', 'docx'].includes(file_extension)) {
+			frm.trigger('preview_doc_content')
+		}
+	},
+
+	preview_doc_content: async function (frm) {
+		const response = await frm.call('get_content')
+		let file_content = response.message
+		if (file_content) {
+			const field = frm.get_field('preview_html')
+			const container = field.wrapper
+
+			frappe.Docx.renderAsync(file_content, container, container, {
+				ignoreLastRenderedPageBreak: false,
+				experimental: true,
+			})
+
+			frm.toggle_display('preview', true)
+		}
 	},
 })
 
