@@ -8,8 +8,9 @@ frappe.ui.form.on('File', {
 			}
 		}
 
-		let file_extension = frm.doc.file_type.toLowerCase()
-		if (['doc', 'docx'].includes(file_extension)) {
+		let file_string = frm.doc.file_type || frm.doc.file_name
+		file_string = file_string.toLowerCase()
+		if (['doc', 'docx'].includes(file_string)) {
 			frm.trigger('preview_doc_content')
 		}
 	},
