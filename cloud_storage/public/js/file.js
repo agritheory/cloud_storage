@@ -10,7 +10,7 @@ frappe.ui.form.on('File', {
 
 		let file_string = frm.doc.file_type || frm.doc.file_name
 		file_string = file_string.toLowerCase()
-		if (['doc', 'docx'].includes(file_string)) {
+		if (['doc', 'docx'].some(extension => file_string.includes(extension))) {
 			frm.trigger('preview_doc_content')
 		}
 	},
