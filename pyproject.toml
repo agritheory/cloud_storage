@@ -8,7 +8,7 @@ requires-python = ">=3.8"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
-    "boto3~=1.26.41",
+    "boto3~=1.28.10",
     "botocore~=1.29.41",
     "python-magic~=0.4.27",
     "pytest",
@@ -44,7 +44,7 @@ version_variables = [
 ]
 
 [tool.semantic_release.branches.version]
-match = "version-14"
+match = "version-15"
 prerelease = false
 
 [tool.semantic_release.changelog]
