@@ -1,10 +1,9 @@
 from io import BytesIO
 from pathlib import Path
 
+import frappe
 import pytest
 from moto import mock_s3
-
-import frappe
 
 
 @pytest.fixture
