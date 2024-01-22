@@ -1,4 +1,4 @@
-frappe.provide('frappe.ui')
+import { createApp, watch } from 'vue'
 
 import FileUploaderComponent from './components/FileUploader.vue'
 
@@ -28,7 +28,8 @@ function disallow_attachment_delete(frm) {
 	}
 }
 
-// TODO: full class override from Frappe's FileUploader.vue file; keep in sync
+// TODO: full class override from Frappe's file_uploader.bundle.js file; keep in sync
+frappe.provide('frappe.ui')
 frappe.ui.FileUploader = class CloudStorageFileUploader {
 	constructor({
 		wrapper,
@@ -57,37 +58,39 @@ frappe.ui.FileUploader = class CloudStorageFileUploader {
 			this.wrapper = wrapper.get ? wrapper.get(0) : wrapper
 		}
 
-		this.$fileuploader = new Vue({
-			el: this.wrapper,
-			render: h =>
-				h(FileUploaderComponent, {
-					props: {
-						show_upload_button: !Boolean(this.dialog),
-						doctype,
-						docname,
-						fieldname,
-						method,
-						folder,
-						on_success,
-						restrictions,
-						upload_notes,
-						allow_multiple,
-						as_dataurl,
-						disable_file_browser,
-						attach_doc_image,
-						make_attachments_public,
-					},
-				}),
-		})
+		if (restrictions && !restrictions.allowed_file_types) {
+			// apply global allow list if present
+			let allowed_extensions = frappe.sys_defaults?.allowed_file_extensions
+			if (allowed_extensions) {
+				restrictions.allowed_file_types = allowed_extensions.split('\n').map(ext => `.${ext}`)
+			}
+		}
 
-		this.uploader = this.$fileuploader.$children[0]
+		let app = createApp(FileUploaderComponent, {
+			show_upload_button: !Boolean(this.dialog),
+			doctype,
+			docname,
+			fieldname,
+			method,
+			folder,
+			on_success,
+			restrictions,
+			upload_notes,
+			allow_multiple,
+			as_dataurl,
+			disable_file_browser,
+			attach_doc_image,
+			make_attachments_public,
+		})
+		SetVueGlobals(app)
+		this.uploader = app.mount(this.wrapper)
 
 		if (!this.dialog) {
 			this.uploader.wrapper_ready = true
 		}
 
-		this.uploader.$watch(
-			'files',
+		watch(
+			() => this.uploader.files,
 			files => {
 				let all_private = files.every(file => file.private)
 				if (this.dialog) {
@@ -97,27 +100,36 @@ frappe.ui.FileUploader = class CloudStorageFileUploader {
 			{ deep: true }
 		)
 
-		this.uploader.$watch('trigger_upload', trigger_upload => {
-			if (trigger_upload) {
-				this.upload_files()
+		watch(
+			() => this.uploader.trigger_upload,
+			trigger_upload => {
+				if (trigger_upload) {
+					this.upload_files()
+				}
 			}
-		})
+		)
 
-		this.uploader.$watch('close_dialog', close_dialog => {
-			if (close_dialog) {
-				this.dialog && this.dialog.hide()
+		watch(
+			() => this.uploader.close_dialog,
+			close_dialog => {
+				if (close_dialog) {
+					this.dialog && this.dialog.hide()
+				}
 			}
-		})
+		)
 
-		this.uploader.$watch('hide_dialog_footer', hide_dialog_footer => {
-			if (hide_dialog_footer) {
-				this.dialog && this.dialog.footer.addClass('hide')
-				this.dialog.$wrapper.data('bs.modal')._config.backdrop = 'static'
-			} else {
-				this.dialog && this.dialog.footer.removeClass('hide')
-				this.dialog.$wrapper.data('bs.modal')._config.backdrop = true
+		watch(
+			() => this.uploader.hide_dialog_footer,
+			hide_dialog_footer => {
+				if (hide_dialog_footer) {
+					this.dialog && this.dialog.footer.addClass('hide')
+					this.dialog.$wrapper.data('bs.modal')._config.backdrop = 'static'
+				} else {
+					this.dialog && this.dialog.footer.removeClass('hide')
+					this.dialog.$wrapper.data('bs.modal')._config.backdrop = true
+				}
 			}
-		})
+		)
 
 		if (files && files.length) {
 			this.uploader.add_files(files)
