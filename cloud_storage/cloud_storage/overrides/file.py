@@ -405,8 +405,8 @@ def get_file_path(file: File, folder: Optional[str] = None) -> str:
 	fragments = [
 		folder,
 		parent_doctype,
-		file.attached_to_name,
-		file.file_name,
+		file.attached_to_name.replace("#", "%23"),
+		file.file_name.replace("#", "%23"),
 	]
 
 	valid_fragments: list[str] = list(filter(None, fragments))
