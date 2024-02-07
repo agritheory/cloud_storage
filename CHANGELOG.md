@@ -2,6 +2,17 @@
 
 
 
+## v14.4.0 (2024-02-07)
+
+### Feature
+
+* feat: move FileUploader to Vue 3 (#50) ([`4c528c8`](https://github.com/agritheory/cloud_storage/commit/4c528c85922ba11a998390654c55ddac1bb1d621))
+
+### Fix
+
+* fix: handle URL formats with hashtag characters (v15) (#55) ([`41d55a8`](https://github.com/agritheory/cloud_storage/commit/41d55a865f49ad57aa384b17bdec54ce41d42b8a))
+
+
 ## v14.3.0 (2024-01-19)
 
 ### Ci
