@@ -28,13 +28,12 @@
 
 			<div class="flex config-area">
 				<label v-if="is_optimizable" class="frappe-checkbox"
-					><input type="checkbox" :checked="optimize" @change="$emit('toggle_optimize')" />Optimize</label
+					><input type="checkbox" :checked="optimize" @change="emit('toggle_optimize')" />{{ __('Optimize') }}</label
 				>
 				<label class="frappe-checkbox"
-					><input type="checkbox" :checked="file.private" @change="$emit('toggle_private')" />Private</label
+					><input type="checkbox" :checked="file.private" @change="emit('toggle_private')" />{{ __('Private') }}</label
 				>
 			</div>
-
 			<div>
 				<span v-if="file.error_message" class="file-error text-danger">
 					{{ file.error_message }}
@@ -55,92 +54,92 @@
 				<button
 					v-if="is_cropable"
 					class="btn btn-crop muted"
-					@click="$emit('toggle_image_cropper')"
+					@click="emit('toggle_image_cropper')"
 					v-html="frappe.utils.icon('crop', 'md')"></button>
 				<button
 					v-if="!uploaded && !file.uploading && !file.failed"
 					class="btn muted"
-					@click="$emit('remove')"
+					@click="emit('remove')"
 					v-html="frappe.utils.icon('delete', 'md')"></button>
 			</div>
 		</div>
 	</div>
 </template>
 
-<script>
+<script setup>
+import { ref, onMounted, computed } from 'vue'
 import ProgressRing from '../../../../../frappe/frappe/public/js/frappe/file_uploader/ProgressRing.vue'
-export default {
-	name: 'FilePreview',
-	props: ['file'],
-	components: {
-		ProgressRing,
-	},
-	data() {
-		return {
-			src: null,
-			optimize: this.file.optimize,
-			filename: this.file.name.substr(0, this.file.name.indexOf('.')),
-			extension: this.file.name.substr(this.file.name.indexOf('.')),
-		}
-	},
-	mounted() {
-		if (this.is_image) {
-			if (window.FileReader) {
-				let fr = new FileReader()
-				fr.onload = () => (this.src = fr.result)
-				fr.readAsDataURL(this.file.file_obj)
-			}
-		}
-	},
-	filters: {
-		file_size(value) {
-			return frappe.form.formatters.FileSize(value)
-		},
-	},
-	computed: {
-		is_private() {
-			return this.file.doc ? this.file.doc.is_private : this.file.private
-		},
-		uploaded() {
-			return this.file.request_succeeded
-		},
-		is_image() {
-			return this.file.file_obj.type.startsWith('image')
-		},
-		is_optimizable() {
-			let is_svg = this.file.file_obj.type == 'image/svg+xml'
-			return this.is_image && !is_svg && !this.uploaded && !this.file.failed
-		},
-		is_cropable() {
-			let croppable_types = ['image/jpeg', 'image/png']
-			return (
-				!this.uploaded && !this.file.uploading && !this.file.failed && croppable_types.includes(this.file.file_obj.type)
-			)
-		},
-		progress() {
-			let value = Math.round((this.file.progress * 100) / this.file.total)
-			if (isNaN(value)) {
-				value = 0
-			}
-			return value
-		},
-	},
-	methods: {
-		toggle_edit() {
-			this.file.in_rename = true
-		},
-		rename_file() {
-			this.file.in_rename = false
-			const new_filename = this.filename + this.extension
-			if (this.file.name !== new_filename) {
-				this.$emit('rename_file', this.file, new_filename)
-			}
-		},
-	},
+
+// emits
+let emit = defineEmits(['toggle_optimize', 'toggle_private', 'toggle_image_cropper', 'remove', 'rename_file'])
+
+// props
+const props = defineProps({
+	file: Object,
+})
+
+// variables
+let src = ref(null)
+let optimize = ref(props.file.optimize)
+let filename = props.file.name.substr(0, props.file.name.indexOf('.'))
+let extension = props.file.name.substr(props.file.name.indexOf('.'))
+
+// computed
+let file_size = computed(() => {
+	return frappe.form.formatters.FileSize(props.file.file_obj.size)
+})
+let is_private = computed(() => {
+	return props.file.doc ? props.file.doc.is_private : props.file.private
+})
+let uploaded = computed(() => {
+	return props.file.request_succeeded
+})
+let is_image = computed(() => {
+	return props.file.file_obj.type.startsWith('image')
+})
+let is_optimizable = computed(() => {
+	let is_svg = props.file.file_obj.type == 'image/svg+xml'
+	return is_image.value && !is_svg && !uploaded.value && !props.file.failed
+})
+let is_cropable = computed(() => {
+	let croppable_types = ['image/jpeg', 'image/png']
+	return (
+		!uploaded.value && !props.file.uploading && !props.file.failed && croppable_types.includes(props.file.file_obj.type)
+	)
+})
+let progress = computed(() => {
+	let value = Math.round((props.file.progress * 100) / props.file.total)
+	if (isNaN(value)) {
+		value = 0
+	}
+	return value
+})
+
+function toggle_edit() {
+	props.file.in_rename = true
 }
+
+function rename_file() {
+	props.file.in_rename = false
+	const new_filename = filename + extension
+	if (props.file.name !== new_filename) {
+		emit('rename_file', props.file, new_filename)
+	}
+}
+
+// mounted
+onMounted(() => {
+	if (is_image.value) {
+		if (window.FileReader) {
+			let fr = new FileReader()
+			fr.onload = () => (src.value = fr.result)
+			fr.readAsDataURL(props.file.file_obj)
+		}
+	}
+})
 </script>
 
-<style>
+<style scoped>
 .file-preview {
 	display: flex;
 	align-items: center;
