@@ -86,6 +86,7 @@ jobs:
       - name: Run Tests
         working-directory: /home/runner/frappe-bench
         run: |
+          bench pip install moto[s3]~=4.1.6
           bench --site test_site set-config allow_tests true
           bench --site test_site run-tests --app cloud_storage
           source env/bin/activate
