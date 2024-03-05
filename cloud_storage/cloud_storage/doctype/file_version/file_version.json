@@ -1,32 +1,21 @@
 {
  "actions": [],
- "creation": "2023-03-20 12:48:05.086487",
- "default_view": "List",
+ "creation": "2023-07-06 05:38:35.891393",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "link_doctype",
-  "link_name",
+  "version",
   "user",
   "timestamp"
  ],
  "fields": [
   {
-   "fieldname": "link_doctype",
-   "fieldtype": "Link",
+   "fieldname": "version",
+   "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Document Type",
-   "options": "DocType",
-   "reqd": 1
-  },
-  {
-   "fieldname": "link_name",
-   "fieldtype": "Dynamic Link",
-   "in_list_view": 1,
-   "label": "Document Name",
-   "options": "link_doctype",
-   "reqd": 1
+   "label": "Version",
+   "read_only": 1
   },
   {
    "fieldname": "timestamp",
@@ -45,15 +34,13 @@
  ],
  "istable": 1,
  "links": [],
- "modified": "2023-09-27 23:42:57.356690",
+ "modified": "2023-09-27 23:45:54.628246",
  "modified_by": "Administrator",
  "module": "Cloud Storage",
- "name": "File Association",
+ "name": "File Version",
  "owner": "Administrator",
  "permissions": [],
- "quick_entry": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": [],
- "track_changes": 1
+ "states": []
 }
