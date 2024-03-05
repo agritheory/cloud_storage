@@ -12,12 +12,15 @@ dependencies = [
     "botocore~=1.29.41",
     "python-magic~=0.4.27",
     "pytest~=7.2.2",
-    'moto[s3]~=4.1.6'
+    "moto~=4.1.6"
 ]
 
 [build-system]
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
+
+[tool.flit.metadata.extras-require]
+moto = ["S3"]
 
 [tool.black]
 line-length = 99
