@@ -19,7 +19,7 @@ dependencies = [
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
 
-[tool.flit.metadata.extras-require]
+[tool.flit.metadata.requires-extra]
 moto = ["S3"]
 
 [tool.black]
