@@ -1,0 +1,13 @@
+{
+	"repoOwner": "agritheory",
+	"repoName": "cloud_storage",
+	"targetBranchChoices": [
+		"version-14",
+		"version-15"
+	],
+	"autoMerge": true,
+	"autoMergeMethod": "squash",
+	"branchLabelMapping": {
+		"^auto-backport-to-(.+)$": "$1"
+	}
+}
