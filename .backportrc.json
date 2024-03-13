@@ -5,6 +5,10 @@
 		"version-14",
 		"version-15"
 	],
+	"targetBranches": [
+		"version-14",
+		"version-15"
+	],
 	"autoMerge": true,
 	"autoMergeMethod": "squash",
 	"branchLabelMapping": {
