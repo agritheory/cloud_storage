@@ -21,6 +21,7 @@ from frappe.utils.image import optimize_image, strip_exif_data
 from magic import from_buffer
 from PIL import UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
+from urllib.parse import quote
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -167,6 +168,7 @@ class CustomFile(File):
 			return self.file_url.startswith(URL_PREFIXES)
 		return not self.content
 
+	@frappe.whitelist()
 	def get_content(self) -> bytes:
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))
@@ -181,7 +183,7 @@ class CustomFile(File):
 
 		if self.file_url:
 			self.validate_file_url()
-		file_path = self.get_full_path()
+		file_path = quote(self.get_full_path())
 
 		if self.is_remote_file:
 			client = get_cloud_storage_client()
