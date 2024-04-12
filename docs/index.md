@@ -36,7 +36,13 @@ If a user tries to access a file that's been deleted or clicks on the old versio
 
 ![Error page when a file is no longer accessible.](./assets/reset_link_or_deleted_file_screen.png)
 
-## Multiple File Association
+## Microsoft Word File Preview
+
+Cloud Storage includes a feature that allows users to preview Microsoft Word files in the browser. This feature is enabled by default and works for local, remote and cloud storage files.
+
+![Document view with a Microsoft Word file preview.](./assets/microsoft_word_preview.png)
+
+## Multiple File Associations
 
 Cloud Storage enhances Frappe's file system to allow for association of the same file with multiple documents.
 
