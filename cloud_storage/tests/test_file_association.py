@@ -56,9 +56,7 @@ def test_upload_file(example_file_record_0):
 	assert file.folder == "Home"
 	assert file.file_name == "aticonrusthex.png"
 	assert file.content_hash is None
-	assert (
-		file.file_url == "/api/method/retrieve?key=test_folder/User/Administrator/aticonrusthex.png"
-	)
+	assert file.file_url == "/api/method/retrieve?key=test_folder/User/Administrator/aticonrusthex.png"
 	assert file.is_private == 1
 	assert len(file.file_association) == 1
 	assert file.file_association[0].link_doctype == "User"

@@ -5,6 +5,8 @@ import types
 import uuid
 from mimetypes import guess_type
 from typing import Optional, Union
+from urllib.parse import quote
+from urllib.request import urlopen
 
 import frappe
 from boto3.exceptions import S3UploadFailedError
@@ -21,14 +23,13 @@ from frappe.utils.image import optimize_image, strip_exif_data
 from magic import from_buffer
 from PIL import UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
-from urllib.parse import quote
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
 
 class CustomFile(File):
-	def has_permission(self, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
+	def has_permission(self, ptype: str | None = None, user: str | None = None) -> bool:
 		return has_permission(self, ptype, user)
 
 	def on_trash(self) -> None:
@@ -53,7 +54,7 @@ class CustomFile(File):
 			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
 
 	def associate_files(
-		self, attached_to_doctype: Optional[str] = None, attached_to_name: Optional[str] = None
+		self, attached_to_doctype: str | None = None, attached_to_name: str | None = None
 	) -> None:
 		attached_to_doctype = attached_to_doctype or self.attached_to_doctype  # type: ignore
 		attached_to_name = attached_to_name or self.attached_to_name  # type: ignore
@@ -185,10 +186,12 @@ class CustomFile(File):
 			self.validate_file_url()
 		file_path = quote(self.get_full_path())
 
-		if self.is_remote_file:
+		if self.file_url.startswith("/api/method/retrieve"):
 			client = get_cloud_storage_client()
 			file_object = client.get_object(Bucket=client.bucket, Key=self.s3_key)
 			self._content = file_object.get("Body").read()
+		elif self.file_url.startswith("http://") or self.file_url.startswith("https://"):
+			self._content = urlopen(self.file_url).read()
 		else:
 			# read the file
 			with open(file_path, mode="rb") as f:
@@ -238,7 +241,7 @@ class CustomFile(File):
 		return file_path
 
 
-def has_permission(doc, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
+def has_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:
 	has_access = False
 	user = frappe.session.user if not user else user
 	# check if public
@@ -271,14 +274,12 @@ def is_safe_path(path: str) -> bool:
 
 
 @frappe.whitelist()
-def get_sharing_link(docname: str, reset: Optional[Union[str, bool]] = None) -> str:
+def get_sharing_link(docname: str, reset: str | bool | None = None) -> str:
 	if isinstance(reset, str):
 		reset = json.loads(reset)
 	doc = frappe.get_doc("File", docname)
 	if doc.is_private:
-		frappe.has_permission(
-			doctype="File", ptype="share", doc=doc, user=frappe.session.user, throw=True
-		)
+		frappe.has_permission(doctype="File", ptype="share", doc=doc, user=frappe.session.user, throw=True)
 	if reset or not doc.sharing_link:
 		doc.db_set("sharing_link", str(uuid.uuid4().int >> 64))
 	return f"{get_url()}/api/method/share?key={doc.sharing_link}"
@@ -396,18 +397,16 @@ def upload_file(file: File) -> File:
 	except Exception as e:
 		frappe.log_error("File Upload Error", e)
 	file.db_set("s3_key", path)
-	if not file.name:
-		file.save()
 	return file
 
 
-def get_file_path(file: File, folder: Optional[str] = None) -> str:
+def get_file_path(file: File, folder: str | None = None) -> str:
 	parent_doctype = file.attached_to_doctype or "No Doctype"
 
 	fragments = [
 		folder,
 		parent_doctype,
-		file.attached_to_name.replace("#", "%23"),
+		file.attached_to_name.replace("#", "%23") if file.attached_to_name else "No Doctype",
 		file.file_name.replace("#", "%23"),
 	]
 
@@ -426,9 +425,7 @@ def get_file_content_hash(content, content_type):
 
 @frappe.whitelist()
 def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
-	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
-		"use_local", False
-	):
+	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get("use_local", False):
 		file.save_file_on_filesystem()
 		return file
 
@@ -470,9 +467,7 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 @frappe.whitelist()
 def delete_file(file: File, **kwargs) -> File:
-	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
-		"use_local", False
-	):
+	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get("use_local", False):
 		file.delete_file_from_filesystem()
 		return file
 
@@ -504,9 +499,7 @@ def validate_file_content(*args, **kwargs):
 
 		# validate filename
 		file_name = file.filename
-		existing_files_by_name = frappe.get_all(
-			"File", filters={"file_name": file_name}, pluck="file_name"
-		)
+		existing_files_by_name = frappe.get_all("File", filters={"file_name": file_name}, pluck="file_name")
 
 		# validate content hash
 		file.stream.seek(0)

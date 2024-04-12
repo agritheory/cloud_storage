@@ -82,9 +82,7 @@ def is_ci(file):
 
 
 def is_frontend_code(file):
-	return file.lower().endswith(
-		(".css", ".scss", ".less", ".sass", ".styl", ".js", ".ts", ".vue", ".html")
-	)
+	return file.lower().endswith((".css", ".scss", ".less", ".sass", ".styl", ".js", ".ts", ".vue", ".html"))
 
 
 def is_docs(file):
