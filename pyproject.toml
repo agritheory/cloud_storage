@@ -9,9 +9,9 @@ readme = "README.md"
 dynamic = ["version"]
 dependencies = [
     "boto3==1.28.10",
+    "moto[s3]~=5.0.5",
     "python-magic~=0.4.27",
-    "pytest",
-    'moto[s3]'
+    "pytest~=8.1.1",
 ]
 
 [build-system]
