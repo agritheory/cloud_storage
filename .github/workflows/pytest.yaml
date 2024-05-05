@@ -1,0 +1,88 @@
+
+name: Frappe CI
+
+on:
+  push:
+    branches:
+      - version-15
+  pull_request:
+
+concurrency:
+  group: version-15-cloud_storage-${{ github.event.number }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: 'root'
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=5s --health-timeout=2s --health-retries=3
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Check for valid Python & Merge Conflicts
+        run: |
+          python -m compileall -q -f "${GITHUB_WORKSPACE}"
+          if grep -lr --exclude-dir=node_modules "^<<<<<<< " "${GITHUB_WORKSPACE}"
+              then echo "Found merge conflicts"
+              exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          check-latest: true
+
+      - name: Add to Hosts
+        run: echo "127.0.0.1 test_site" | sudo tee -a /etc/hosts
+
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+            ${{ runner.os }}-
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v3
+        id: yarn-cache
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install
+        run: |
+          bash ${GITHUB_WORKSPACE}/.github/helper/install.sh
+
+      - name: Run Tests
+        working-directory: /home/runner/frappe-bench
+        run: |
+          source env/bin/activate
+          pytest ./apps/cloud_storage/cloud_storage/tests/ --disable-warnings -s
+        env:
+          TYPE: server

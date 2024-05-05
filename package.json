@@ -1,11 +1,12 @@
 {
 	"name": "@agritheory/cloud_storage",
+	"type": "module",
 	"dependencies": {
 		"madr": "^3.0.0"
 	},
 	"release": {
 		"branches": [
-			"version-14"
+			"version-15"
 		]
 	},
 	"repository": {
