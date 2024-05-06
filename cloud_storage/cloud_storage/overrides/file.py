@@ -23,6 +23,7 @@ from frappe.utils.image import optimize_image, strip_exif_data
 from magic import from_buffer
 from PIL import UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
+from urllib.parse import quote
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
