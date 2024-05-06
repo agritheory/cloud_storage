@@ -13,7 +13,9 @@ def unscrub(txt: str) -> str:
 
 def get_customized_doctypes():
 	apps_dir = pathlib.Path(__file__).resolve().parent.parent.parent
-	apps_order = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "sites" / "apps.txt"
+	apps_order = (
+		pathlib.Path(__file__).resolve().parent.parent.parent.parent / "sites" / "apps.txt"
+	)
 	apps_order = apps_order.read_text().split("\n")
 	customized_doctypes = {}
 	for _app_dir in apps_order:
@@ -24,7 +26,9 @@ def get_customized_doctypes():
 		for module in modules:
 			if not (app_dir / _app_dir / scrub(module) / "custom").exists():
 				continue
-			for custom_file in list((app_dir / _app_dir / scrub(module) / "custom").glob("**/*.json")):
+			for custom_file in list(
+				(app_dir / _app_dir / scrub(module) / "custom").glob("**/*.json")
+			):
 				if custom_file.stem in customized_doctypes:
 					customized_doctypes[custom_file.stem].append(custom_file.resolve())
 				else:
@@ -89,7 +93,9 @@ def validate_no_custom_perms(customized_doctypes):
 				continue
 			file_contents = json.loads(customize_file.read_text())
 			if file_contents.get("custom_perms"):
-				exceptions.append(f"Customization for {doctype} in {this_app} contains custom permissions")
+				exceptions.append(
+					f"Customization for {doctype} in {this_app} contains custom permissions"
+				)
 	return exceptions
 
 

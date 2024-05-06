@@ -9,7 +9,12 @@ from frappe.custom.doctype.property_setter.property_setter import make_property_
 def load_customizations():
 	print("Loading Cloud Storage customizations")
 	customizations_directory = (
-		Path().cwd().parent / "apps" / "cloud_storage" / "cloud_storage" / "cloud_storage" / "custom"
+		Path().cwd().parent
+		/ "apps"
+		/ "cloud_storage"
+		/ "cloud_storage"
+		/ "cloud_storage"
+		/ "custom"
 	)
 	files = list(customizations_directory.glob("**/*.json"))
 	for file in files:

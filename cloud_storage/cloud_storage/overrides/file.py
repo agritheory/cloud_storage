@@ -15,7 +15,10 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
-from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
+from frappe.core.doctype.file.utils import (
+	decode_file_content,
+	get_content_hash,
+)
 from frappe.model.rename_doc import rename_doc
 from frappe.permissions import has_user_permission
 from frappe.utils import get_datetime, get_url
@@ -24,6 +27,7 @@ from magic import from_buffer
 from PIL import UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
 from urllib.parse import quote
+
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -36,7 +40,9 @@ class CustomFile(File):
 			return self.file_url.startswith(URL_PREFIXES)  # type: ignore
 		return not self.content
 
-	def has_permission(self, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
+	def has_permission(
+		self, ptype: Optional[str] = None, user: Optional[str] = None
+	) -> bool:
 		return has_permission(self, ptype, user)
 
 	def validate(self) -> None:
@@ -91,7 +97,9 @@ class CustomFile(File):
 		self._delete_file_on_disk()
 		# even though the code is unreachable, we're keeping it here for reference
 		if not self.is_folder and len(self.file_association) > 0:
-			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
+			self.add_comment_in_reference_doc(
+				"Attachment Removed", _("Removed {0}").format(self.file_name)
+			)
 
 	def associate_files(
 		self, attached_to_doctype: str | None = None, attached_to_name: str | None = None
@@ -123,7 +131,8 @@ class CustomFile(File):
 
 		existing_attachment = list(
 			filter(
-				lambda row: row.link_doctype == attached_to_doctype and row.link_name == attached_to_name,
+				lambda row: row.link_doctype == attached_to_doctype
+				and row.link_name == attached_to_name,
 				self.file_association,
 			)
 		)
@@ -221,7 +230,9 @@ class CustomFile(File):
 				file_path = f"/files/{file_path}"
 
 		if file_path.startswith("/private/files/"):
-			file_path = get_files_path(*file_path.split("/private/files/", 1)[1].split("/"), is_private=1)
+			file_path = get_files_path(
+				*file_path.split("/private/files/", 1)[1].split("/"), is_private=1
+			)
 
 		elif file_path.startswith("/files/"):
 			file_path = get_files_path(*file_path.split("/files/", 1)[1].split("/"))
@@ -279,7 +290,9 @@ def get_sharing_link(docname: str, reset: str | bool | None = None) -> str:
 		reset = json.loads(reset)
 	doc = frappe.get_doc("File", docname)
 	if doc.is_private:
-		frappe.has_permission(doctype="File", ptype="share", doc=doc, user=frappe.session.user, throw=True)
+		frappe.has_permission(
+			doctype="File", ptype="share", doc=doc, user=frappe.session.user, throw=True
+		)
 	if reset or not doc.sharing_link:
 		doc.db_set("sharing_link", str(uuid.uuid4().int >> 64))
 	return f"{get_url()}/api/method/share?key={doc.sharing_link}"
@@ -372,7 +385,9 @@ def get_presigned_url(client, key: str):
 
 
 def get_sharing_url(client, key: str) -> str:
-	file = frappe.get_value("File", {"sharing_link": key}, ["name", "s3_key"], as_dict=True)
+	file = frappe.get_value(
+		"File", {"sharing_link": key}, ["name", "s3_key"], as_dict=True
+	)
 	if not file:
 		raise DoesNotExistError(frappe._("The file you are looking for is not available"))
 
@@ -425,7 +440,10 @@ def get_file_content_hash(content, content_type):
 
 @frappe.whitelist()
 def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
-	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get("use_local", False):
+	if (
+		not frappe.conf.cloud_storage_settings
+		or frappe.conf.cloud_storage_settings.get("use_local", False)
+	):
 		file.save_file_on_filesystem()
 		return file
 
@@ -435,7 +453,9 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 	# if a hash-conflict is found, update the existing document with a new file association
 	existing_file_hashes = frappe.get_all(
-		"File", filters={"name": ["!=", file.name], "content_hash": file.content_hash}, pluck="name"
+		"File",
+		filters={"name": ["!=", file.name], "content_hash": file.content_hash},
+		pluck="name",
 	)
 
 	if existing_file_hashes:
@@ -452,7 +472,11 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 	if existing_file_names:
 		file_doc = frappe.get_doc("File", existing_file_names[0])
 		file_doc.update(
-			{"content": file.content, "content_hash": file.content_hash, "content_type": file.content_type}
+			{
+				"content": file.content,
+				"content_hash": file.content_hash,
+				"content_type": file.content_type,
+			}
 		)
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
 		file = file_doc
@@ -467,7 +491,10 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 @frappe.whitelist()
 def delete_file(file: File, **kwargs) -> File:
-	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get("use_local", False):
+	if (
+		not frappe.conf.cloud_storage_settings
+		or frappe.conf.cloud_storage_settings.get("use_local", False)
+	):
 		file.delete_file_from_filesystem()
 		return file
 
@@ -500,7 +527,9 @@ def validate_file_content(*args, **kwargs):
 
 		# validate filename
 		file_name = file.filename
-		existing_files_by_name = frappe.get_all("File", filters={"file_name": file_name}, pluck="file_name")
+		existing_files_by_name = frappe.get_all(
+			"File", filters={"file_name": file_name}, pluck="file_name"
+		)
 
 		# validate content hash
 		file.stream.seek(0)

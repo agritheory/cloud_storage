@@ -94,7 +94,9 @@ has_permission = {
 # ---------------
 # Override standard doctype classes
 
-override_doctype_class = {"File": "cloud_storage.cloud_storage.overrides.file.CustomFile"}
+override_doctype_class = {
+	"File": "cloud_storage.cloud_storage.overrides.file.CustomFile"
+}
 
 # Document Events
 # ---------------

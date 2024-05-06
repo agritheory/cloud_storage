@@ -26,7 +26,9 @@ def example_file_record_2():
 
 @pytest.fixture
 def get_cloud_storage_client_fixture():
-	return frappe.call("cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client")
+	return frappe.call(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client"
+	)
 
 
 # helper function
@@ -77,7 +79,8 @@ def test_upload_file(example_file_record_0):
 	assert file.file_name == "aticonrusthex.png"
 	assert file.content_hash is not None
 	assert (
-		file.file_url == "/api/method/retrieve?key=test_folder/User/Administrator/aticonrusthex.png"
+		file.file_url
+		== "/api/method/retrieve?key=test_folder/User/Administrator/aticonrusthex.png"
 	)
 	assert file.is_private == 0  # makes the delete file test easier
 	assert file.s3_key is not None
@@ -86,7 +89,9 @@ def test_upload_file(example_file_record_0):
 	assert file.file_association[0].link_name == "Administrator"
 
 	# Test manual association
-	file.append("file_association", {"link_doctype": "Module Def", "link_name": "Cloud Storage"})
+	file.append(
+		"file_association", {"link_doctype": "Module Def", "link_name": "Cloud Storage"}
+	)
 	file.save()
 	assert len(file.file_association) == 2
 	assert file.file_association[1].link_doctype == "Module Def"
