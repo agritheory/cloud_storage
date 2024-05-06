@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install mypy and types 
+      - name: Install mypy and types
         run: python -m pip install mypy types-python-dateutil types-pytz --no-input
 
       - name: Run mypy
@@ -56,7 +56,7 @@ jobs:
 
       - name: Install Black (Frappe)
         run: pip install git+https://github.com/frappe/black.git
-    
+
       - name: Run Black (Frappe)
         run: black --check .
 
@@ -149,7 +149,7 @@ jobs:
         run: git clone --depth 1 https://gist.github.com/f1bf2c11f78331b2417189c385022c28.git validate_json
 
       - name: Validate JSON
-        run: python3 validate_json/validate_json.py ./inventory_tools/inventory_tools/
+        run: python3 validate_json/validate_json.py ./cloud_storage/cloud_storage/
 
       - name: Compile
         run: python3 -m compileall -q ./

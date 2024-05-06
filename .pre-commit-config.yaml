@@ -38,11 +38,10 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
           (?x)^(
-              .*node_modules.*|
-              cloud_storage/public/dist/.*|
-              cloud_storage/public/js/lib/.*|
-              cloud_storage/templates/includes/.*|
-              cloud_storage/www/website_script.js
+            .*node_modules.*|
+            cloud_storage/public/dist/.*|
+            cloud_storage/public/js/lib/.*|
+            cloud_storage/templates/includes/.*
           )$
 
   - repo: https://github.com/pre-commit/mirrors-eslint
@@ -60,6 +59,22 @@ repos:
               cloud_storage/templates/includes/.*|
               cloud_storage/www/website_script.js
           )$
+
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v8.44.0
+    hooks:
+      - id: eslint
+        types_or: [javascript]
+        args: ['--quiet']
+        # Ignore any files that might contain jinja / bundles
+        exclude: |
+            (?x)^(
+                .*node_modules.*|
+                cloud_storage/public/dist/.*|
+                cloud_storage/public/js/lib/.*|
+                cloud_storage/templates/includes/.*|
+                cloud_storage/www/website_script.js
+            )$
 
   - repo: https://github.com/PyCQA/isort
     rev: 5.12.0
