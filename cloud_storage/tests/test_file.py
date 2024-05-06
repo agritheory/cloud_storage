@@ -1,175 +1,126 @@
-from unittest.mock import MagicMock, patch
+from io import BytesIO
+from pathlib import Path
 
 import frappe
-from boto3.exceptions import S3UploadFailedError
-from botocore.exceptions import ClientError
-from frappe.tests.utils import FrappeTestCase
+import pytest
+from moto import mock_s3
+from werkzeug.datastructures import FileMultiDict
 
-from cloud_storage.cloud_storage.overrides.file import (
-	CustomFile,
-	delete_file,
-	upload_file,
-	write_file,
-)
+from cloud_storage.cloud_storage.overrides.file import CustomFile, retrieve
 
 
-class TestFile(FrappeTestCase):
-	@patch("cloud_storage.cloud_storage.overrides.file.upload_file")
-	@patch("cloud_storage.cloud_storage.overrides.file.strip_special_chars")
-	@patch("frappe.get_all")
-	@patch("frappe.conf")
-	def test_write_file(self, config, get_all, strip_chars, upload_file):
-		file = MagicMock()
+@pytest.fixture
+def example_file_record_0():
+	return Path(__file__).parent / "fixtures" / "aticonrusthex.png"
 
-		# test local fallback
-		config.cloud_storage_settings = None
-		write_file(file)
-		assert file.save_file_on_filesystem.call_count == 1
 
-		config.cloud_storage_settings = {"use_local": True}
-		write_file(file)
-		assert file.save_file_on_filesystem.call_count == 2
+@pytest.fixture
+def example_file_record_1():
+	return Path(__file__).parent / "fixtures" / "aticonrust.svg"
 
-		config.cloud_storage_settings = {"use_local": False}
-		file.attached_to_doctype = "Data Import"
-		write_file(file)
-		assert file.save_file_on_filesystem.call_count == 3
 
-		# test file upload with autoname
-		file.attached_to_doctype = None
-		file.name = None
-		file.file_name = "test_file.png"
-		strip_chars.return_value = "test_file.png"
-		upload_file.return_value = file
-		get_all.return_value = []
-		write_file(file)
-		upload_file.assert_called_with(file)
+@pytest.fixture
+def example_file_record_2():
+	return Path(__file__).parent / "fixtures" / "atlogo_rust.svg"
 
-		# test file upload without autoname
-		file.name = "test_file"
-		file.file_name = "test_file.png"
-		upload_file.return_value = file
-		write_file(file)
-		upload_file.assert_called_with(file)
 
-	@patch("cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client")
-	@patch("cloud_storage.cloud_storage.overrides.file.get_file_path")
-	def test_upload_file(self, file_path, client):
-		# setup file
-		file = MagicMock()
-		file.content_type = "image/jpeg"
+@pytest.fixture
+def get_cloud_storage_client_fixture():
+	return frappe.call("cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client")
 
-		# test general exception
-		client.return_value.put_object.side_effect = TypeError
-		upload_file(file)
-		assert client.return_value.put_object.call_count == 1
 
-		# test upload errors
-		client.return_value.put_object.side_effect = S3UploadFailedError
-		with self.assertRaises(frappe.ValidationError):
-			upload_file(file)
-		assert client.return_value.put_object.call_count == 2
+# helper function
+def create_upload_file(file_path: Path, **kwargs) -> CustomFile:
+	f = BytesIO(file_path.resolve().read_bytes())
+	f.seek(0)
 
-		# test upload success
-		client.return_value.put_object.side_effect = True
-		file_path.return_value = "/path/to/s3/bucket/location"
-		upload_file(file)
-		assert client.return_value.put_object.call_count == 3
+	# simulate a Frappe client -> server request file object using Werkzeug
+	files = FileMultiDict()
+	files.add_file("file", f, kwargs.get("file_name"))
 
-	@patch("cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client")
-	@patch("frappe.conf")
-	def test_delete_file(self, config, client):
-		file = MagicMock()
+	frappe.set_user("Administrator")
+	frappe.local.request = frappe._dict()
+	frappe.local.request.method = kwargs.get("method") or "POST"
+	frappe.local.request.files = files
+	frappe.local.form_dict = frappe._dict()
+	frappe.local.form_dict.is_private = False
+	frappe.local.form_dict.doctype = kwargs.get("doctype") or "User"
+	frappe.local.form_dict.docname = kwargs.get("docname") or "Administrator"
+	frappe.local.form_dict.fieldname = kwargs.get("fieldname") or None
+	frappe.local.form_dict.file_url = kwargs.get("file_url") or None
+	frappe.local.form_dict.folder = kwargs.get("folder") or "Home"
+	frappe.local.form_dict.file_name = kwargs.get("file_name") or None
+	frappe.local.form_dict.optimize = kwargs.get("optimize") or False
+	file = frappe.call("frappe.handler.upload_file")
+	return file
 
-		# test local fallback
-		config.cloud_storage_settings = None
-		delete_file(file)
-		assert file.delete_file_from_filesystem.call_count == 1
-		assert client.return_value.delete_object.call_count == 0
 
-		config.cloud_storage_settings = {"use_local": True}
-		delete_file(file)
-		assert file.delete_file_from_filesystem.call_count == 2
-		assert client.return_value.delete_object.call_count == 0
+@mock_s3
+def test_config(get_cloud_storage_client_fixture):
+	c = get_cloud_storage_client_fixture
+	assert c.bucket == "test_bucket"
+	assert c.folder == "test_folder"
+	assert c.expiration == 110
+	assert c._endpoint._endpoint_prefix == "s3"
+	assert c._endpoint.host == "https://test.imgainarys3.edu"
 
-		# test skip folder deletion
-		config.cloud_storage_settings = {"use_local": False}
-		file.is_folder = True
-		delete_file(file)
-		assert client.return_value.delete_object.call_count == 0
 
-		# test skip file deletion from missing url or key param
-		file.is_folder = False
-		file.file_url = None
-		delete_file(file)
-		assert client.return_value.delete_object.call_count == 0
+@mock_s3
+def test_upload_file(example_file_record_0):
+	frappe.set_user("Administrator")
+	file = create_upload_file(example_file_record_0, file_name="aticonrusthex.png")
+	assert frappe.db.exists("File", file.name)
+	assert file.attached_to_doctype == "User"
+	assert file.attached_to_name == "Administrator"
+	assert file.attached_to_field is None
+	assert file.folder == "Home"
+	assert file.file_name == "aticonrusthex.png"
+	assert file.content_hash is not None
+	assert (
+		file.file_url == "/api/method/retrieve?key=test_folder/User/Administrator/aticonrusthex.png"
+	)
+	assert file.is_private == 0  # makes the delete file test easier
+	assert file.s3_key is not None
+	assert len(file.file_association) == 1
+	assert file.file_association[0].link_doctype == "User"
+	assert file.file_association[0].link_name == "Administrator"
 
-		file.file_url = "/api/method/retrieve"
-		delete_file(file)
-		assert client.return_value.delete_object.call_count == 0
+	# Test manual association
+	file.append("file_association", {"link_doctype": "Module Def", "link_name": "Cloud Storage"})
+	file.save()
+	assert len(file.file_association) == 2
+	assert file.file_association[1].link_doctype == "Module Def"
+	assert file.file_association[1].link_name == "Cloud Storage"
 
-		file.file_url = "/api/method/retrieve?key="
-		delete_file(file)
-		assert client.return_value.delete_object.call_count == 0
 
-		# test general exception
-		file.file_url = "/api/method/retrieve?key=/path/to/s3/bucket/location"
-		client.return_value.delete_object.side_effect = TypeError
-		delete_file(file)
-		assert client.return_value.delete_object.call_count == 1
+@mock_s3
+def test_upload_file_with_multiple_association(example_file_record_1):
+	_file = create_upload_file(example_file_record_1, file_name="aticonrust.svg")
+	file = create_upload_file(
+		example_file_record_1,
+		doctype="Module Def",
+		docname="Automation",
+		file_name="aticonrust.svg",
+	)
 
-		# test upload errors
-		client.return_value.delete_object.side_effect = ClientError(
-			error_response={"Error": {}}, operation_name="delete_file"
-		)
-		with self.assertRaises(frappe.ValidationError):
-			delete_file(file)
-		assert client.return_value.delete_object.call_count == 2
+	_file.load_from_db()
+	assert frappe.db.exists("File", _file.name) is not None
+	assert frappe.db.exists("File", file.name) is None
+	assert len(_file.file_association) == 2
+	assert _file.file_association[0].link_doctype == "User"
+	assert _file.file_association[0].link_name == "Administrator"
+	assert _file.file_association[1].link_doctype == "Module Def"
+	assert _file.file_association[1].link_name == "Automation"
 
-		# test upload success
-		client.bucket = "bucket"
-		client.return_value.delete_object.side_effect = True
-		delete_file(file)
-		assert client.return_value.delete_object.call_count == 3
 
-	@patch("cloud_storage.cloud_storage.overrides.file.has_user_permission")
-	@patch("frappe.has_permission")
-	@patch("frappe.get_doc")
-	def test_file_permission(self, get_doc, has_permission, has_user_permission):
-		# test file access for owner
-		file = CustomFile({"doctype": "File", "owner": "Administrator"})
-		self.assertEqual(file.has_permission(), True)
-		self.assertEqual(file.has_permission(user="Administrator"), True)
+@mock_s3
+def test_delete_file(example_file_record_2):
+	frappe.set_user("Administrator")
+	file = create_upload_file(example_file_record_2, file_name="atlogo_rust.svg")
+	s3_key = file.s3_key
+	file.delete()
 
-		# test file access for non-owner user
-		has_permission.return_value = True
-		assert file.has_permission(user="Administrator") is True
-		assert file.has_permission(user="support@agritheory.dev") is True
-		has_permission.return_value = False
-		assert file.has_permission(user="Administrator") is True
-		assert file.has_permission(user="support@agritheory.dev") is False
+	assert not frappe.db.exists("File", file.name)
 
-		# test file access for attached doctypes
-		file = CustomFile(
-			{
-				"doctype": "File",
-				"owner": "Administrator",
-				"attached_to_doctype": "Sales Order",
-				"attached_to_name": "SO-0001",
-			}
-		)
-
-		# test file access for doc permissions
-		get_doc.return_value = MagicMock()
-		get_doc.return_value.has_permission.return_value = True
-		assert file.has_permission(user="Administrator") is True
-		assert file.has_permission(user="support@agritheory.dev") is True
-
-		# test file access for custom user permissions
-		get_doc.return_value.has_permission.return_value = False
-		has_user_permission.return_value = True
-		assert file.has_permission(user="Administrator") is True
-		assert file.has_permission(user="support@agritheory.dev") is True
-		has_user_permission.return_value = False
-		assert file.has_permission(user="Administrator") is True
-		assert file.has_permission(user="support@agritheory.dev") is False
+	with pytest.raises(frappe.exceptions.DoesNotExistError):
+		retrieve(s3_key)

@@ -1,14 +1,8 @@
 {
 	"repoOwner": "agritheory",
 	"repoName": "cloud_storage",
-	"targetBranchChoices": [
-		"version-14",
-		"version-15"
-	],
-	"targetBranches": [
-		"version-14",
-		"version-15"
-	],
+	"targetBranchChoices": ["version-14", "version-15"],
+	"targetBranches": ["version-14", "version-15"],
 	"autoMerge": true,
 	"autoMergeMethod": "squash",
 	"branchLabelMapping": {

@@ -29,8 +29,47 @@ URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
 
 class CustomFile(File):
-	def has_permission(self, ptype: str | None = None, user: str | None = None) -> bool:
+	@File.is_remote_file.getter
+	def is_remote_file(self) -> bool:
+		if self.file_url:  # type: ignore
+			return self.file_url.startswith(URL_PREFIXES)  # type: ignore
+		return not self.content
+
+	def has_permission(self, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
 		return has_permission(self, ptype, user)
+
+	def validate(self) -> None:
+		self.associate_files()
+		if self.flags.cloud_storage or self.flags.ignore_file_validate:
+			return
+		if not self.is_remote_file:
+			super().validate()
+		else:
+			self.validate_file_url()
+
+	def after_insert(self) -> File:
+		if self.attached_to_doctype and self.attached_to_name and not self.file_association:  # type: ignore
+			if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
+				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")  # type: ignore
+			else:
+				associated_doc = frappe.get_value(
+					"File",
+					{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
+				)
+			if associated_doc:
+				self.db_set(
+					"file_url", ""
+				)  # this is done to prevent deletion of the remote file with the delete_file hook
+				rename_doc(
+					self.doctype,
+					self.name,
+					associated_doc,
+					merge=True,
+					force=True,
+					show_alert=False,
+					ignore_permissions=True,
+					# validate=False,
+				)
 
 	def on_trash(self) -> None:
 		user_roles = frappe.get_roles(frappe.session.user)
@@ -66,7 +105,7 @@ class CustomFile(File):
 			path = get_file_path(self, client.folder)
 			self.file_url = FILE_URL.format(path=path)
 		if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
-			associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
+			associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")  # type: ignore
 		else:
 			associated_doc = frappe.get_value(
 				"File",
@@ -78,7 +117,7 @@ class CustomFile(File):
 			existing_file.attached_to_name = attached_to_name
 			self.content_hash = existing_file.content_hash
 			# if a File exists already where this association should be, we continue validating that File at this time
-			# the original File will then be removed in the after insert hook
+			# the original File will then be removed in the after insert hook (also avoids recursion issues)
 			self = existing_file
 
 		existing_attachment = list(
@@ -99,39 +138,6 @@ class CustomFile(File):
 			)
 		if associated_doc and associated_doc != self.name:
 			self.save()
-
-	def validate(self) -> None:
-		self.associate_files()
-		if self.flags.cloud_storage or self.flags.ignore_file_validate:
-			return
-		if not self.is_remote_file:
-			super().validate()
-		else:
-			self.validate_file_url()
-
-	def after_insert(self) -> File:
-		if self.attached_to_doctype and self.attached_to_name and not self.file_association:  # type: ignore
-			if not self.content_hash and "/api/method/retrieve" in self.file_url:
-				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")
-			else:
-				associated_doc = frappe.get_value(
-					"File",
-					{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},
-					"name",
-				)
-			if associated_doc:
-				self.db_set(
-					"file_url", ""
-				)  # this is done to prevent deletion of the remote file with the delete_file hook
-				rename_doc(
-					self.doctype,
-					self.name,
-					associated_doc,
-					merge=True,
-					force=True,
-					show_alert=False,
-					ignore_permissions=True,
-				)
 
 	def add_file_version(self, version_id):
 		self.append(
@@ -163,13 +169,6 @@ class CustomFile(File):
 			association.idx = idx
 		self.save()
 
-	@property
-	def is_remote_file(self) -> bool:
-		if self.file_url:
-			return self.file_url.startswith(URL_PREFIXES)
-		return not self.content
-
-	@frappe.whitelist()
 	def get_content(self) -> bytes:
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))
@@ -483,7 +482,8 @@ def delete_file(file: File, **kwargs) -> File:
 			except ClientError:
 				frappe.throw(_("Access denied: Could not delete file"))
 			except Exception as e:
-				frappe.log_error(str(e), "Cloud Storage Error: Cloud not delete file")
+				print(f"EXCEPTION: {e}")
+				frappe.log_error(str(e), "Cloud Storage Error: Could not delete file")
 
 	return file
 

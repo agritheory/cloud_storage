@@ -1,10 +1,8 @@
-import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import frappe
 import pytest
-from frappe.defaults import *
 from frappe.utils import get_bench_path
 
 

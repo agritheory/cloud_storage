@@ -11,8 +11,10 @@ dependencies = [
     "boto3==1.28.10",
     "moto[s3]~=5.0.5",
     "python-magic~=0.4.27",
-    "pytest~=8.1.1",
+    "pytest~=7.2.2",
+    "moto~=4.1.6"
 ]
+moto = ["S3"]
 
 [build-system]
 requires = ["flit_core >=3.4,<4"]
