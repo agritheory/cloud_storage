@@ -10,7 +10,7 @@ sudo apt install libcups2-dev redis-server mariadb-client-10.6
 
 pip install frappe-bench
 
-bench init --skip-redis-config-generation --skip-assets --python "$(which python)" --frappe-branch version-15 frappe-bench
+bench init --skip-assets --python "$(which python)" --frappe-branch version-15 frappe-bench
 
 mkdir ~/frappe-bench/sites/test_site
 cp -r "${GITHUB_WORKSPACE}/.github/helper/site_config.json" ~/frappe-bench/sites/test_site/
