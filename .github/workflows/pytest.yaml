@@ -84,6 +84,14 @@ jobs:
         working-directory: /home/runner/frappe-bench
         run: |
           source env/bin/activate
-          pytest ./apps/cloud_storage/cloud_storage/tests/ -s
+          cd apps/cloud_storage
+          pytest --cov=cloud_storage --cov-report=xml --disable-warnings -s | tee pytest-coverage.txt
         env:
           TYPE: server
+
+      - name: Pytest coverage comment
+        uses: MishaKav/pytest-coverage-comment@main
+        with:
+          pytest-coverage-path: /home/runner/frappe-bench/apps/cloud_storage/pytest-coverage.txt
+          junitxml-path: /home/runner/frappe-bench/apps/cloud_storage/coverage.xml
+

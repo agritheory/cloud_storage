@@ -68,13 +68,18 @@ repos:
         args: ['--quiet']
         # Ignore any files that might contain jinja / bundles
         exclude: |
-          (?x)^(
-              .*node_modules.*|
-              cloud_storage/public/dist/.*|
-              cloud_storage/public/js/lib/.*|
-              cloud_storage/templates/includes/.*|
-              cloud_storage/www/website_script.js
-          )$
+            (?x)^(
+                .*node_modules.*|
+                cloud_storage/public/dist/.*|
+                cloud_storage/public/js/lib/.*|
+                cloud_storage/templates/includes/.*|
+                cloud_storage/www/website_script.js
+            )$
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
 
   - repo: https://github.com/PyCQA/flake8
     rev: 6.0.0

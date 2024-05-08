@@ -2,7 +2,50 @@
 
 
 
-## v14.4.0 (2024-02-07)
+## v14.4.1 (2024-05-06)
+
+### Ci
+
+* ci: backport testing (#59)
+
+(cherry picked from commit 233d09226a995cbdc2582053b16c3e2845fea036) ([`1e70ec7`](https://github.com/agritheory/cloud_storage/commit/1e70ec77ba81795a32794f7b14fc765d5e213ede))
+
+### Fix
+
+* fix: encoded url on get_content (#51) (#66)
+
+Co-authored-by: Devarsh Bhatt &lt;58166671+bhattdevarsh@users.noreply.github.com&gt; ([`e5ae0f3`](https://github.com/agritheory/cloud_storage/commit/e5ae0f3faa7e56ba45ec3e479be960a8d9f37691))
+
+### Test
+
+* test: fix delete file test (#63)
+
+* ci: add frappe black to CI (#57)
+
+* ci: add frappe black to CI
+
+* chore: black
+
+* ci: fix v15 tests
+
+* ci: run redis server
+
+---------
+
+Co-authored-by: Tyler Matteson &lt;support@agritheory.dev&gt;
+Co-authored-by: Heather Kusmierz &lt;heather@agritheory.dev&gt;
+Co-authored-by: Rohan Bansal &lt;rohan@agritheory.dev&gt; ([`1452f34`](https://github.com/agritheory/cloud_storage/commit/1452f34bf903e940aee11d8a5eeec928da5712ef))
+
+### Unknown
+
+* CI: update target branches for backport ([`afdb11b`](https://github.com/agritheory/cloud_storage/commit/afdb11bf65fc760f01ebafc2754eb4f18b4b54eb))
+
+* Merge pull request #60 from agritheory/backport/version-15/pr-59
+
+[version-15] ci: backport testing (#59) ([`c1d5329`](https://github.com/agritheory/cloud_storage/commit/c1d532936bfb7cc64a9e17693066841afcb6bea3))
+
+
+## v15.0.0 (2024-02-07)
 
 ### Feature
 
@@ -156,7 +199,7 @@ Co-authored-by: Rohan Bansal &lt;rohan@parsimony.com&gt; ([`331c1ef`](https://gi
 * fix: ignore user permissions when renaming file ([`ce5874f`](https://github.com/agritheory/cloud_storage/commit/ce5874fe15eac7da8d45d37114b4a859edc84e7d))
 
 
-## v14.1.1 (2023-04-04)
+## v14.1.1 (2023-04-03)
 
 ### Unknown
 
@@ -167,7 +210,7 @@ Ci ([`4dd5441`](https://github.com/agritheory/cloud_storage/commit/4dd5441bf6c5c
 * Merge branch &#39;version-14&#39; into ci ([`49b61c6`](https://github.com/agritheory/cloud_storage/commit/49b61c6d4f48c38a3310ff615a84237d0068cbbc))
 
 
-## v14.1.0 (2023-04-04)
+## v14.1.0 (2023-04-03)
 
 ### Chore
 
