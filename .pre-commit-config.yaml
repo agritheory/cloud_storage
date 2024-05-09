@@ -20,10 +20,10 @@ repos:
       - id: debug-statements
 
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.9.0
+    rev: v3.15.2
     hooks:
       - id: pyupgrade
-        args: ['--py38-plus']
+        args: ['--py310-plus']
 
   - repo: https://github.com/frappe/black
     rev: 951ccf4d5bb0d692b457a5ebc4215d755618eb68
@@ -56,28 +56,11 @@ repos:
               .*node_modules.*|
               cloud_storage/public/dist/.*|
               cloud_storage/public/js/lib/.*|
-              cloud_storage/templates/includes/.*|
-              cloud_storage/www/website_script.js
+              cloud_storage/templates/includes/.*
           )$
 
-  - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v8.44.0
-    hooks:
-      - id: eslint
-        types_or: [javascript]
-        args: ['--quiet']
-        # Ignore any files that might contain jinja / bundles
-        exclude: |
-            (?x)^(
-                .*node_modules.*|
-                cloud_storage/public/dist/.*|
-                cloud_storage/public/js/lib/.*|
-                cloud_storage/templates/includes/.*|
-                cloud_storage/www/website_script.js
-            )$
-
   - repo: https://github.com/PyCQA/isort
-    rev: 5.12.0
+    rev: 5.13.2
     hooks:
       - id: isort
 
