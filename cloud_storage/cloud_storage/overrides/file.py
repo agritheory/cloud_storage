@@ -27,7 +27,7 @@ FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
 
-class CustomFile(File):
+class CloudStorageFile(File):
 	@File.is_remote_file.getter
 	def is_remote_file(self) -> bool:
 		if self.file_url:  # type: ignore

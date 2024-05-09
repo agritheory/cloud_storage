@@ -6,7 +6,7 @@ import pytest
 from moto import mock_s3
 from werkzeug.datastructures import FileMultiDict
 
-from cloud_storage.cloud_storage.overrides.file import CustomFile, retrieve
+from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, retrieve
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def get_cloud_storage_client_fixture():
 
 
 # helper function
-def create_upload_file(file_path: Path, **kwargs) -> CustomFile:
+def create_upload_file(file_path: Path, **kwargs) -> CloudStorageFile:
 	f = BytesIO(file_path.resolve().read_bytes())
 	f.seek(0)
 

@@ -1,4 +1,4 @@
-__version__ = "14.4.1"
+__version__ = "14.5.0"
 
 
 import frappe.desk.form.load

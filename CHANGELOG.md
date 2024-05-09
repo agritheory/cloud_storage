@@ -2,6 +2,76 @@
 
 
 
+## v14.5.0 (2024-05-09)
+
+### Feature
+
+* feat: clearer file class name (#67)
+
+* feat: clearer file class name
+
+* ci: install poetry in CI to get coverage
+
+* ci: show lines for which tests are not run
+
+* fix: path to run tests
+
+---------
+
+Co-authored-by: Myuddin khatri &lt;khatrimayu111@gmail.com&gt; ([`f6f819e`](https://github.com/agritheory/cloud_storage/commit/f6f819e5c77b7e30a28db4ce6ee528036a3a84ce))
+
+### Refactor
+
+* refactor: pyproject.toml to poetry (#65)
+
+* ci: add frappe black to CI (#57)
+
+* ci: add frappe black to CI
+
+* chore: black
+
+* ci: backport testing (#59)
+
+* Validate customizations (#41)
+
+* fix:
+
+* fix: only install customizations for cloud storage
+
+* chore: add dependency versions
+
+* tests: explicitly install moto with s3 extra
+
+* ci: try flit extras-require
+
+* test: try this config
+
+* fix: fix toml (#62)
+
+* refactor: pyproject.toml to poetry
+
+* chore: downgrade moto version
+
+* chore: rebase to version-15
+
+* ci: coverage report to PR
+
+* fix: linting
+
+* chore: pytest command
+
+* ci: remove old linters, allow from forks
+
+* fix: add back setup.py
+
+* fix: setup in wrong folder
+
+---------
+
+Co-authored-by: Tyler Matteson &lt;support@agritheory.dev&gt;
+Co-authored-by: Tyler Matteson &lt;tyler@agritheory.com&gt; ([`6332878`](https://github.com/agritheory/cloud_storage/commit/6332878d9deae412c29525d1f434eb86b12a7e8c))
+
+
 ## v14.4.1 (2024-05-06)
 
 ### Ci

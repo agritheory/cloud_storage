@@ -68,3 +68,9 @@ bench start
 source env/bin/activate
 mypy ./apps/cloud_storage/cloud_storage --ignore-missing-imports
 ```
+
+11. To run `pytest` locally
+```shell
+bench setup requirements --dev
+pytest
+```
