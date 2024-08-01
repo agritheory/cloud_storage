@@ -1,3 +1,6 @@
+# Copyright (c) 2024, AgriTheory and contributors
+# For license information, please see license.txt
+
 import json
 import os
 import re
@@ -5,6 +8,7 @@ import types
 import uuid
 from mimetypes import guess_type
 from typing import Optional, Union
+from urllib.parse import quote, unquote
 
 import frappe
 from boto3.exceptions import S3UploadFailedError
@@ -21,7 +25,6 @@ from frappe.utils.image import optimize_image, strip_exif_data
 from magic import from_buffer
 from PIL import UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
-from urllib.parse import quote
 
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
@@ -30,6 +33,26 @@ URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 class CustomFile(File):
 	def has_permission(self, ptype: Optional[str] = None, user: Optional[str] = None) -> bool:
 		return has_permission(self, ptype, user)
+
+	def custom_validate(self):
+		# do not check validate_file_on_disk
+		if self.is_folder:
+			return
+
+		# Ensure correct formatting and type
+		self.file_url = unquote(self.file_url) if self.file_url else ""
+
+		self.validate_attachment_references()
+
+		# when dict is passed to get_doc for creation of new_doc, is_new returns None
+		# this case is handled inside handle_is_private_changed
+		if not self.is_new() and self.has_value_changed("is_private"):
+			self.handle_is_private_changed()
+
+		self.validate_file_path()
+		self.validate_file_url()
+
+		self.file_size = frappe.form_dict.file_size or self.file_size
 
 	def on_trash(self) -> None:
 		user_roles = frappe.get_roles(frappe.session.user)
@@ -104,7 +127,7 @@ class CustomFile(File):
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		if not self.is_remote_file:
-			super().validate()
+			self.custom_validate()
 		else:
 			self.validate_file_url()
 
