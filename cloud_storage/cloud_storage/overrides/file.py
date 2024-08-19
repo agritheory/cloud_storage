@@ -1,3 +1,6 @@
+# Copyright (c) 2024, AgriTheory and contributors
+# For license information, please see license.txt
+
 import json
 import os
 import re
@@ -168,6 +171,7 @@ class CloudStorageFile(File):
 			association.idx = idx
 		self.save()
 
+	@frappe.whitelist()
 	def get_content(self) -> bytes:
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))
@@ -182,7 +186,6 @@ class CloudStorageFile(File):
 
 		if self.file_url:
 			self.validate_file_url()
-		file_path = quote(self.get_full_path())
 
 		if self.file_url.startswith("/api/method/retrieve"):
 			client = get_cloud_storage_client()
@@ -191,7 +194,7 @@ class CloudStorageFile(File):
 		elif self.file_url.startswith("http://") or self.file_url.startswith("https://"):
 			self._content = urlopen(self.file_url).read()
 		else:
-			# read the file
+			file_path = quote(self.get_full_path())
 			with open(file_path, mode="rb") as f:
 				self._content = f.read()
 				try:
