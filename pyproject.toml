@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cloud_storage"
-version = "14.7.2"
+version = "15.7.2"
 description = "Frappe App for integrating with cloud storage applications"
 authors = ["AgriTheory <support@agritheory.dev>"]
 readme = "README.md"
@@ -40,6 +40,9 @@ indent = "\t"
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:tool.poetry.version"]
+version_variable = [
+    "cloud_storage/__init__.py:__version__"
+]
 
 [tool.semantic_release.branches.version]
 match = "version-15"
