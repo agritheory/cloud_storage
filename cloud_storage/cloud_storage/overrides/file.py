@@ -35,7 +35,6 @@ class CustomFile(File):
 		return has_permission(self, ptype, user)
 
 	def custom_validate(self):
-		# do not check validate_file_on_disk
 		if self.is_folder:
 			return
 
@@ -428,10 +427,14 @@ def upload_file(file: File) -> File:
 def get_file_path(file: File, folder: Optional[str] = None) -> str:
 	parent_doctype = file.attached_to_doctype or "No Doctype"
 
+	attached_to_name = ""
+	if file.attached_to_name:
+		attached_to_name = file.attached_to_name.replace("#", "%23")
+
 	fragments = [
 		folder,
 		parent_doctype,
-		file.attached_to_name.replace("#", "%23"),
+		attached_to_name,
 		file.file_name.replace("#", "%23"),
 	]
 
