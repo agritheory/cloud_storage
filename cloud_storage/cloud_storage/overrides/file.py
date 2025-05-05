@@ -85,14 +85,12 @@ class CloudStorageFile(File):
 				self.db_set(
 					"file_url", ""
 				)  # this is done to prevent deletion of the remote file with the delete_file hook
-
 				new_association = {
 					"link_doctype": self.attached_to_doctype,
 					"link_name": self.attached_to_name,
 					"user": frappe.session.user,
 					"timestamp": get_datetime(),
 				}
-				
 				rename_doc(
 					self.doctype,
 					self.name,
@@ -103,7 +101,6 @@ class CloudStorageFile(File):
 					ignore_permissions=True,
 					# validate=False,
 				)
-
 				existing_file = frappe.get_doc("File", associated_doc)
 				existing_file.append("file_association", new_association)
 				existing_file.save()
