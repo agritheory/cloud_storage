@@ -85,6 +85,14 @@ class CloudStorageFile(File):
 				self.db_set(
 					"file_url", ""
 				)  # this is done to prevent deletion of the remote file with the delete_file hook
+
+				new_association = {
+					"link_doctype": self.attached_to_doctype,
+					"link_name": self.attached_to_name,
+					"user": frappe.session.user,
+					"timestamp": get_datetime(),
+				}
+				
 				rename_doc(
 					self.doctype,
 					self.name,
@@ -95,6 +103,10 @@ class CloudStorageFile(File):
 					ignore_permissions=True,
 					# validate=False,
 				)
+
+				existing_file = frappe.get_doc("File", associated_doc)
+				existing_file.append("file_association", new_association)
+				existing_file.save()
 
 	def on_trash(self) -> None:
 		user_roles = frappe.get_roles(frappe.session.user)
@@ -175,7 +187,7 @@ class CloudStorageFile(File):
 		)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
-		if len(self.file_association) <= 1:
+		if len(self.file_association) < 1:
 			self.delete()
 			return
 		to_remove = []
