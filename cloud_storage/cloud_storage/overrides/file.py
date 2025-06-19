@@ -141,22 +141,20 @@ class CloudStorageFile(File):
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
 			existing_file.append(
-				"file_association", add_child_file_association(attached_to_doctype,attached_to_name)
-				
+				"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
 			)
 			existing_file.save()
 		else:
 			if self.file_association:
-				link_names=[i.link_name for i in self.file_association]
+				link_names = [i.link_name for i in self.file_association]
 				if attached_to_name not in link_names:
 					self.append(
-						"file_association", add_child_file_association(attached_to_doctype,attached_to_name)
+						"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
 					)
 			else:
 				self.append(
-						"file_association", add_child_file_association(attached_to_doctype,attached_to_name)
-					)
-
+					"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+				)
 
 	def add_file_version(self, version_id):
 		self.append(
@@ -597,10 +595,11 @@ def remove_attach():
 	doc = frappe.get_doc("File", fid)
 	doc.remove_file_association(dt, dn)
 
-def add_child_file_association(attached_to_doctype,attached_to_name):
+
+def add_child_file_association(attached_to_doctype, attached_to_name):
 	return {
-			"link_doctype": attached_to_doctype,
-			"link_name": attached_to_name,
-			"user": frappe.session.user,
-			"timestamp": get_datetime(),
-		}
+		"link_doctype": attached_to_doctype,
+		"link_name": attached_to_name,
+		"user": frappe.session.user,
+		"timestamp": get_datetime(),
+	}

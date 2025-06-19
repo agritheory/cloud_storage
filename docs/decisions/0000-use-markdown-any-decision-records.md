@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2025, AgriTheory and contributors
+For license information, please see license.txt-->
+
 # Use Markdown Any Decision Records
 
 ## Context and Problem Statement

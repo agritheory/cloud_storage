@@ -1,3 +1,6 @@
+# Copyright (c) 2025, AgriTheory and contributors
+# For license information, please see license.txt
+
 from . import __version__ as app_version
 
 app_name = "cloud_storage"

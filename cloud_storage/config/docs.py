@@ -1,3 +1,6 @@
+# Copyright (c) 2025, AgriTheory and contributors
+# For license information, please see license.txt
+
 from frappe import _dict
 
 source_link = "https://github.com/agritheory/cloud_storage"

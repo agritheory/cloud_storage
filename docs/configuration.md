@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2025, AgriTheory and contributors
+For license information, please see license.txt-->
+
 # Cloud Storage Site Configuration
 
 The following documentation shows how to set up some common cloud storage providers:

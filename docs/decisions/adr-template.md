@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2025, AgriTheory and contributors
+For license information, please see license.txt-->
+
 ---
 # These are optional elements. Feel free to remove any of them.
 status: proposed | rejected | accepted | deprecated | … | superseded by [ADR-0005](0005-example.md)
