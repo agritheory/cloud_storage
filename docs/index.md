@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2025, AgriTheory and contributors
+For license information, please see license.txt-->
+
 # Cloud Storage Documentation
 
 Cloud Storage extends the file utilities in a Frappe App to integrate with third-party cloud storage applications. Once configured, users can upload, download, or remove files to a cloud storage application via the Frappe App's interface. Depending on user permissions, they may also generate or reset sharing links to files.

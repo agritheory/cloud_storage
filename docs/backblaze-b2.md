@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2025, AgriTheory and contributors
+For license information, please see license.txt-->
+
 # [Backblaze B2](https://www.backblaze.com/b2/cloud-storage.html)
 
 ## Credentials

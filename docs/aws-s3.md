@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2025, AgriTheory and contributors
+For license information, please see license.txt-->
+
 # [Amazon Web Services S3 Setup](https://aws.amazon.com/s3/)
 
 ## Regions

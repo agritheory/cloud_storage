@@ -140,29 +140,21 @@ class CloudStorageFile(File):
 			existing_file = frappe.get_doc("File", associated_doc)
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
-			self.content_hash = existing_file.content_hash
-			# if a File exists already where this association should be, we continue validating that File at this time
-			# the original File will then be removed in the after insert hook (also avoids recursion issues)
-			self = existing_file
-
-		existing_attachment = list(
-			filter(
-				lambda row: row.link_doctype == attached_to_doctype and row.link_name == attached_to_name,
-				self.file_association,
+			existing_file.append(
+				"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
 			)
-		)
-		if not existing_attachment:
-			self.append(
-				"file_association",
-				{
-					"link_doctype": attached_to_doctype,
-					"link_name": attached_to_name,
-					"user": frappe.session.user,
-					"timestamp": get_datetime(),
-				},
-			)
-		if associated_doc and associated_doc != self.name:
-			self.save()
+			existing_file.save()
+		else:
+			if self.file_association:
+				link_names = [i.link_name for i in self.file_association]
+				if attached_to_name not in link_names:
+					self.append(
+						"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+					)
+			else:
+				self.append(
+					"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+				)
 
 	def add_file_version(self, version_id):
 		self.append(
@@ -602,3 +594,12 @@ def remove_attach():
 		return
 	doc = frappe.get_doc("File", fid)
 	doc.remove_file_association(dt, dn)
+
+
+def add_child_file_association(attached_to_doctype, attached_to_name):
+	return {
+		"link_doctype": attached_to_doctype,
+		"link_name": attached_to_name,
+		"user": frappe.session.user,
+		"timestamp": get_datetime(),
+	}
