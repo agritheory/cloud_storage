@@ -33,7 +33,7 @@ app_include_js = ["cloud_storage.bundle.js"]
 
 # include js in doctype views
 doctype_js = {"File": "public/js/file.js"}
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+doctype_list_js = {"File": "public/js/file_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 

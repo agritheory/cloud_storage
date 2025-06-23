@@ -141,7 +141,8 @@ class CloudStorageFile(File):
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
 			existing_file.append(
-				"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+				"file_association",
+				add_child_file_association(attached_to_doctype, attached_to_name),
 			)
 			existing_file.save()
 		else:
@@ -149,12 +150,15 @@ class CloudStorageFile(File):
 				link_names = [i.link_name for i in self.file_association]
 				if attached_to_name not in link_names:
 					self.append(
-						"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+						"file_association",
+						add_child_file_association(attached_to_doctype, attached_to_name),
 					)
 			else:
 				self.append(
-					"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
 				)
+		self.check_previous_version()
 
 	def add_file_version(self, version_id):
 		self.append(
@@ -165,6 +169,52 @@ class CloudStorageFile(File):
 				"timestamp": get_datetime(),
 			},
 		)
+
+	def check_previous_version(self):
+		self.custom_status = "Latest"
+		previous_files = frappe.get_all(
+			"File",
+			filters={"file_name": self.file_name, "name": ["!=", self.name], "is_folder": 0},
+			fields=["name"],
+			order_by="creation desc",
+		)
+
+		previous_version = previous_files[0].name if previous_files else None
+
+		if previous_version:
+			self.previous_version = previous_version
+			# self.save(ignore_permissions=True)
+			for idx, file_info in enumerate(previous_files):
+				file_doc = frappe.get_doc("File", file_info.name)
+				if file_info.name != self.name:
+					file_doc.custom_status = "Older Version"
+				file_doc.save(ignore_permissions=True)
+			self.update_all_associations_to_latest()
+
+	def update_all_associations_to_latest(self):
+		"""Update all file associations to point to the latest version of the file."""
+		files = frappe.get_all(
+			"File",
+			filters={"file_name": self.file_name, "is_folder": 0},
+			fields=["name"],
+			order_by="creation desc",
+		)
+		if not files:
+			return
+
+		latest_file_name = files[0].name
+		for file_info in files:
+			file_doc = frappe.get_doc("File", file_info.name)
+
+			for assoc in file_doc.file_association:
+				frappe.db.set_value(
+					"File",
+					file_doc.name,
+					{
+						"attached_to_doctype": file_doc.attached_to_doctype,
+						"attached_to_name": file_doc.attached_to_name,
+					},
+				)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
