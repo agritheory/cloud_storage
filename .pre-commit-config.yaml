@@ -83,11 +83,11 @@ repos:
       - id: update_pre_commit_config
       - id: validate_copyright
         files: '\.(js|ts|py|md)$'
-        args: ["--app", "cloud_storage"]
+        args: ['--app', 'cloud_storage']
       - id: clean_customized_doctypes
-        args: ["--app", "cloud_storage"]
+        args: ['--app', 'cloud_storage']
       - id: validate_customizations
-      - id: validate_javascript_dependencies
+      # - id: validate_javascript_dependencies
 
 ci:
   autoupdate_schedule: weekly

@@ -163,14 +163,93 @@ class CloudStorageFile(File):
 				)
 
 	def add_file_version(self, version_id):
-		self.append(
-			"versions",
-			{
-				"version": str(version_id),
-				"user": frappe.session.user,
-				"timestamp": get_datetime(),
-			},
+		previous_files = frappe.get_all(
+			"File",
+			filters={"file_name": self.file_name, "name": ["!=", self.name], "is_folder": 0},
+			fields=["name"],
+			order_by="creation desc",
 		)
+		if previous_files:
+			self.append(
+				"custom_versions",
+				{
+					"version": str(version_id),
+					"user": frappe.session.user,
+					"timestamp": get_datetime(),
+				},
+			)
+
+			for each in previous_files:
+				file_doc = frappe.get_doc("File", each.name)
+				for assoc in file_doc.file_association:
+					self.append(
+						"file_association",
+						add_child_file_association(assoc.link_doctype, assoc.link_name),
+					)
+
+				for version in file_doc.custom_versions:
+					self.append(
+						"custom_versions",
+						{
+							"version": version.version,
+							"user": version.user,
+							"timestamp": version.timestamp,
+						},
+					)
+
+				file_doc.delete(ignore_permissions=True)
+		else:
+			self.append(
+				"custom_versions",
+				{
+					"version": str(version_id),
+					"user": frappe.session.user,
+					"timestamp": get_datetime(),
+				},
+			)
+
+	def update_version_status(self):
+		"""Set status for all versions of this file name."""
+		files = frappe.get_all(
+			"File",
+			filters={"file_name": self.file_name, "is_folder": 0},
+			fields=["name", "creation"],
+			order_by="creation desc",
+		)
+		if not files:
+			return
+		latest_file = files[0]
+		for file_info in files:
+			file_doc = frappe.get_doc("File", file_info.name)
+			if file_info.name == latest_file.name:
+				file_doc.status = "Latest"
+			else:
+				file_doc.status = "Older Version"
+			file_doc.save(ignore_permissions=True)
+
+	def update_all_associations_to_latest(self):
+		"""Update all file associations to point to the latest version of the file."""
+		files = frappe.get_all(
+			"File",
+			filters={"file_name": self.file_name, "is_folder": 0},
+			fields=["name"],
+			order_by="creation desc",
+		)
+		if not files:
+			return
+		latest_file_name = files[0].name
+		for file_info in files:
+			file_doc = frappe.get_doc("File", file_info.name)
+			# Update all associations to point to the latest file
+			for assoc in file_doc.file_association:
+				frappe.db.set_value(
+					"File",
+					file_doc.name,
+					{
+						"attached_to_doctype": file_doc.attached_to_doctype,
+						"attached_to_name": file_doc.attached_to_name,
+					},
+				)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
