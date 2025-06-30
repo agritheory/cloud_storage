@@ -12,14 +12,30 @@ frappe.ui.form.on('File', {
 		}
 
 		let file_string = frm.doc.file_type || frm.doc.file_name
+
 		file_string = file_string.toLowerCase()
 		if (['doc', 'docx'].some(extension => file_string.includes(extension))) {
 			frm.trigger('preview_doc_content')
+		} else if (['ppt', 'pptx', 'odp', 'key'].some(extension => file_string.includes(extension))) {
+			frm.trigger('preview_file_as_pdf')
 		}
 	},
 
-	preview_doc_content: async function (frm) {
-		const response = await frm.call('get_content')
+	preview_file_as_pdf: async function (frm) {
+		// const pdf_url = `/api/method/cloud_storage.cloud_storage.overrides.file.get_pdf_preview?name=${frm.doc.name}`;
+		// const $preview = $(`<div class="img_preview">
+		//     <object style="background:#323639;" width="100%">
+		//         <embed
+		//             style="background:#323639;"
+		//             width="100%"
+		//             height="1190"
+		//             src="${pdf_url}" type="application/pdf"
+		//         >
+		//     </object>
+		// </div>`);
+		// frm.toggle_display('preview', true);
+		// frm.get_field('preview_html').$wrapper.html($preview);
+		const response = await frm.call('get_pdf_preview')
 		let file_content = response.message
 		if (file_content) {
 			const field = frm.get_field('preview_html')
@@ -30,6 +46,36 @@ frappe.ui.form.on('File', {
 				experimental: true,
 			})
 
+			frm.toggle_display('preview', true)
+		}
+	},
+
+	preview_doc_content: async function (frm) {
+		const response = await frm.call('get_content')
+		let file_content = response.message
+		console.log(file_content)
+		// if (file_content) {
+		// 	const field = frm.get_field('preview_html')
+		// 	const container = field.wrapper
+
+		// 	frappe.Docx.renderAsync(file_content, container, container, {
+		// 		ignoreLastRenderedPageBreak: false,
+		// 		experimental: true,
+		// 	})
+
+		// 	frm.toggle_display('preview', true)
+		// }
+		if (file_content && file_content.toLowerCase().endsWith('.pdf')) {
+			// Create iframe preview
+			let preview_html = `
+                <div style="margin-top: 20px">
+                    <label class="control-label">PDF Preview</label>
+                    <iframe src="${file_content}" width="100%" height="600px" style="border: 1px solid #ccc;"></iframe>
+                </div>
+            `
+
+			// Append to form wrapper (or a better place)
+			frm.fields_dict.preview_html && frm.fields_dict.preview_html.$wrapper.html(preview_html)
 			frm.toggle_display('preview', true)
 		}
 	},

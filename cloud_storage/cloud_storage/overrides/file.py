@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import subprocess
 import types
 import uuid
 from mimetypes import guess_type
@@ -21,6 +22,7 @@ from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
 from frappe.model.rename_doc import rename_doc
 from frappe.permissions import has_user_permission
 from frappe.utils import get_datetime, get_url
+from frappe.utils.file_manager import check_max_file_size, get_file_path, save_file
 from frappe.utils.image import optimize_image, strip_exif_data
 from magic import from_buffer
 from PIL import UnidentifiedImageError
@@ -141,7 +143,8 @@ class CloudStorageFile(File):
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
 			existing_file.append(
-				"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+				"file_association",
+				add_child_file_association(attached_to_doctype, attached_to_name),
 			)
 			existing_file.save()
 		else:
@@ -149,11 +152,13 @@ class CloudStorageFile(File):
 				link_names = [i.link_name for i in self.file_association]
 				if attached_to_name not in link_names:
 					self.append(
-						"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+						"file_association",
+						add_child_file_association(attached_to_doctype, attached_to_name),
 					)
 			else:
 				self.append(
-					"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
 				)
 
 	def add_file_version(self, version_id):
@@ -255,6 +260,69 @@ class CloudStorageFile(File):
 			frappe.throw(_("File name cannot have {0}").format(os.path.sep))
 
 		return file_path
+
+	@frappe.whitelist()
+	def get_pdf_preview(self):
+		if self.is_folder:
+			frappe.throw(_("Cannot get file contents of a Folder"))
+
+		if self.get("content"):
+			self._content = self.content
+			if self.decode:  # type: ignore
+				self._content = decode_file_content(self._content)
+				self.decode = False
+			# self.content = None # TODO: This needs to happen; make it happen somehow
+			return self._content
+
+		ext = self.file_name.split(".")[-1].lower()
+		if ext in ["ppt", "pptx", "odp", "key"]:
+			import tempfile
+
+			client = get_cloud_storage_client()
+			# Download the original file from S3 to a temp file
+			ppt_s3_key = self.s3_key
+			with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as temp_ppt:
+				ppt_bytes = client.get_object(Bucket=client.bucket, Key=ppt_s3_key)["Body"].read()
+				temp_ppt.write(ppt_bytes)
+				temp_ppt.flush()
+				ppt_path = temp_ppt.name
+			# Convert to PDF using libreoffice
+			with tempfile.TemporaryDirectory() as tmpdir:
+				subprocess.run(
+					[
+						"libreoffice",
+						"--headless",
+						"--convert-to",
+						"pdf",
+						"--outdir",
+						tmpdir,
+						ppt_path,
+					],
+					check=True,
+				)
+				pdf_filename = os.path.splitext(os.path.basename(ppt_path))[0] + ".pdf"
+				pdf_path = os.path.join(tmpdir, pdf_filename)
+
+				with open(pdf_path, "rb") as f:
+					pdf_content = f.read()
+
+				file_size = check_max_file_size(pdf_content)
+				content_hash = get_content_hash(pdf_content)
+				doc = frappe.get_doc(
+					{
+						"doctype": "File",
+						"attached_to_doctype": self.attached_to_doctype,
+						"attached_to_name": self.attached_to_name,
+						"attached_to_field": self.attached_to_doctype,
+						"folder": 0,
+						"file_size": file_size,
+						"content_hash": content_hash,
+						"is_private": 0,
+						"file_name": pdf_filename,
+					}
+				)
+				doc.insert()
+				return doc.file_url
 
 
 def has_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:
@@ -418,23 +486,23 @@ def upload_file(file: File) -> File:
 	return file
 
 
-def get_file_path(file: File, folder: str | None = None) -> str:
-	parent_doctype = file.attached_to_doctype or "No Doctype"
+# def get_file_path(file: File, folder: str | None = None) -> str:
+# 	parent_doctype = file.attached_to_doctype or "No Doctype"
 
-	attached_to_name = ""
-	if file.attached_to_name:
-		attached_to_name = file.attached_to_name.replace("#", "%23")
+# 	attached_to_name = ""
+# 	if file.attached_to_name:
+# 		attached_to_name = file.attached_to_name.replace("#", "%23")
 
-	fragments = [
-		folder,
-		parent_doctype,
-		attached_to_name,
-		file.file_name.replace("#", "%23"),
-	]
+# 	fragments = [
+# 		folder,
+# 		parent_doctype,
+# 		attached_to_name,
+# 		file.file_name.replace("#", "%23"),
+# 	]
 
-	valid_fragments: list[str] = list(filter(None, fragments))
-	path = "/".join(valid_fragments)
-	return path
+# 	valid_fragments: list[str] = list(filter(None, fragments))
+# 	path = "/".join(valid_fragments)
+# 	return path
 
 
 def get_file_content_hash(content, content_type):
