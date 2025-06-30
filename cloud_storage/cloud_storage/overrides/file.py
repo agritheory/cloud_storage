@@ -171,7 +171,7 @@ class CloudStorageFile(File):
 		)
 		if previous_files:
 			self.append(
-				"custom_versions",
+				"versions",
 				{
 					"version": str(version_id),
 					"user": frappe.session.user,
@@ -187,9 +187,9 @@ class CloudStorageFile(File):
 						add_child_file_association(assoc.link_doctype, assoc.link_name),
 					)
 
-				for version in file_doc.custom_versions:
+				for version in file_doc.versions:
 					self.append(
-						"custom_versions",
+						"versions",
 						{
 							"version": version.version,
 							"user": version.user,
@@ -200,7 +200,7 @@ class CloudStorageFile(File):
 				file_doc.delete(ignore_permissions=True)
 		else:
 			self.append(
-				"custom_versions",
+				"versions",
 				{
 					"version": str(version_id),
 					"user": frappe.session.user,
