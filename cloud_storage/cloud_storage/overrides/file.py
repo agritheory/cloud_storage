@@ -149,64 +149,52 @@ class CloudStorageFile(File):
 			)
 			existing_file.save()
 		else:
-			if self.file_association:
-				link_names = [i.link_name for i in self.file_association]
-				if attached_to_name not in link_names:
+			associated_doc = frappe.get_value(
+				"File",
+				{"content_hash": ["!=", self.content_hash], "name": ["=", self.name], "is_folder": False},  # type: ignore
+			)
+			if associated_doc:
+				doc = frappe.get_doc("File", associated_doc)
+				doc.status = "Latest"
+				doc.append(
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
+				)
+				doc.append(
+					"versions",
+					{
+						"version": str(self.content_hash),
+						"user": frappe.session.user,
+						"timestamp": get_datetime(),
+					},
+				)
+				doc.save()
+			else:
+				if self.file_association:
+					already_linked = any(
+						assoc.link_doctype == attached_to_doctype and assoc.link_name == attached_to_name
+						for assoc in self.file_association
+					)
+					if not already_linked:
+						self.append(
+							"file_association",
+							add_child_file_association(attached_to_doctype, attached_to_name),
+						)
+				else:
 					self.append(
 						"file_association",
 						add_child_file_association(attached_to_doctype, attached_to_name),
 					)
-			else:
-				self.append(
-					"file_association",
-					add_child_file_association(attached_to_doctype, attached_to_name),
-				)
 
 	def add_file_version(self, version_id):
-		previous_files = frappe.get_all(
-			"File",
-			filters={"file_name": self.file_name, "name": ["!=", self.name], "is_folder": 0},
-			fields=["name"],
-			order_by="creation desc",
+		self.append(
+			"versions",
+			{
+				"version": str(version_id),
+				"user": frappe.session.user,
+				"timestamp": get_datetime(),
+			},
 		)
-		if previous_files:
-			self.append(
-				"versions",
-				{
-					"version": str(version_id),
-					"user": frappe.session.user,
-					"timestamp": get_datetime(),
-				},
-			)
-
-			for each in previous_files:
-				file_doc = frappe.get_doc("File", each.name)
-				for assoc in file_doc.file_association:
-					self.append(
-						"file_association",
-						add_child_file_association(assoc.link_doctype, assoc.link_name),
-					)
-
-				for version in file_doc.versions:
-					self.append(
-						"versions",
-						{
-							"version": version.version,
-							"user": version.user,
-							"timestamp": version.timestamp,
-						},
-					)
-
-				file_doc.delete(ignore_permissions=True)
-		else:
-			self.append(
-				"versions",
-				{
-					"version": str(version_id),
-					"user": frappe.session.user,
-					"timestamp": get_datetime(),
-				},
-			)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
@@ -488,8 +476,8 @@ def upload_file(file: File) -> File:
 		response = client.put_object(
 			Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type
 		)
-		if response.get("VersionId"):
-			file.add_file_version(response.get("VersionId"))
+		if response.get("ETag"):
+			file.add_file_version(response.get("ETag"))
 	except S3UploadFailedError:
 		frappe.throw(_("File Upload Failed. Please try again."))
 	except Exception as e:
