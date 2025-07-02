@@ -48,12 +48,6 @@ frappe.ui.form.on('File', {
 			field.$wrapper.html($preview)
 			frm.toggle_display('preview', true)
 		}
-
-		if (frm.doc.status === 'Latest') {
-			frm.set_indicator(__('Latest'), 'green')
-		} else {
-			frm.set_indicator(__('Outdated'), 'orange')
-		}
 	},
 
 	preview_doc_content: async function (frm) {
