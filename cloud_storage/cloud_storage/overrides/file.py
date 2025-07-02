@@ -98,7 +98,7 @@ class CloudStorageFile(File):
 					ignore_permissions=True,
 					# validate=False,
 				)
-		elif self.attached_to_doctype and self.attached_to_name and self.file_name:
+		elif self.attached_to_doctype and self.attached_to_name and self.file_name:  # type: ignore
 			associated_doc = frappe.db.get_value(
 				"File",
 				{
