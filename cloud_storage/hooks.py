@@ -67,7 +67,7 @@ doctype_js = {"File": "public/js/file.js"}
 # ------------
 
 # before_install = "cloud_storage.install.before_install"
-# after_install = "cloud_storage.install.after_install"
+after_install = "cloud_storage.install.after_install"
 
 # Uninstallation
 # ------------
