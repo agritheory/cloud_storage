@@ -22,20 +22,36 @@ frappe.ui.form.on('File', {
 	},
 
 	preview_file_as_pdf: async function (frm) {
-		// const pdf_url = `/api/method/cloud_storage.cloud_storage.overrides.file.get_pdf_preview?name=${frm.doc.name}`;
-		// const $preview = $(`<div class="img_preview">
-		//     <object style="background:#323639;" width="100%">
-		//         <embed
-		//             style="background:#323639;"
-		//             width="100%"
-		//             height="1190"
-		//             src="${pdf_url}" type="application/pdf"
-		//         >
-		//     </object>
-		// </div>`);
-		// frm.toggle_display('preview', true);
-		// frm.get_field('preview_html').$wrapper.html($preview);
 		const response = await frm.call('get_pdf_preview')
+		let pdf_content = response.message
+		if (pdf_content) {
+			// Always treat as base64 string from backend
+			const byteCharacters = atob(pdf_content)
+			const byteNumbers = new Array(byteCharacters.length)
+			for (let i = 0; i < byteCharacters.length; i++) {
+				byteNumbers[i] = byteCharacters.charCodeAt(i)
+			}
+			const byteArray = new Uint8Array(byteNumbers)
+			const blob = new Blob([byteArray], { type: 'application/pdf' })
+			const url = URL.createObjectURL(blob)
+			const field = frm.get_field('preview_html')
+			const $preview = $(`<div class="img_preview">
+			   <object style="background:#323639;" width="100%">
+				   <embed
+					   style="background:#323639;"
+					   width="100%"
+					   height="1190"
+					   src="${url}" type="application/pdf"
+				   >
+			   </object>
+		   </div>`)
+			field.$wrapper.html($preview)
+			frm.toggle_display('preview', true)
+		}
+	},
+
+	preview_doc_content: async function (frm) {
+		const response = await frm.call('get_content')
 		let file_content = response.message
 		if (file_content) {
 			const field = frm.get_field('preview_html')
@@ -46,36 +62,6 @@ frappe.ui.form.on('File', {
 				experimental: true,
 			})
 
-			frm.toggle_display('preview', true)
-		}
-	},
-
-	preview_doc_content: async function (frm) {
-		const response = await frm.call('get_content')
-		let file_content = response.message
-		console.log(file_content)
-		// if (file_content) {
-		// 	const field = frm.get_field('preview_html')
-		// 	const container = field.wrapper
-
-		// 	frappe.Docx.renderAsync(file_content, container, container, {
-		// 		ignoreLastRenderedPageBreak: false,
-		// 		experimental: true,
-		// 	})
-
-		// 	frm.toggle_display('preview', true)
-		// }
-		if (file_content && file_content.toLowerCase().endsWith('.pdf')) {
-			// Create iframe preview
-			let preview_html = `
-                <div style="margin-top: 20px">
-                    <label class="control-label">PDF Preview</label>
-                    <iframe src="${file_content}" width="100%" height="600px" style="border: 1px solid #ccc;"></iframe>
-                </div>
-            `
-
-			// Append to form wrapper (or a better place)
-			frm.fields_dict.preview_html && frm.fields_dict.preview_html.$wrapper.html(preview_html)
 			frm.toggle_display('preview', true)
 		}
 	},
