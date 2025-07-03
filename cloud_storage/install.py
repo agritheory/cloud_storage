@@ -1,49 +1,46 @@
 # Copyright (c) 2025, AgriTheory and contributors
 # For license information, please see license.txt
 
-import os
 import subprocess
-from getpass import getpass
-from sys import platform
-
-
-def is_root():
-	return os.geteuid() == 0
-
-
-def test_sudo():
-	args = "sudo -S echo OK".split()
-	kwargs = dict(stdout=subprocess.PIPE, encoding="ascii")
-	cmd = subprocess.run(args, **kwargs)
-	return "OK" in cmd.stdout
-
-
-def install(module, pwd=""):
-	args = f"sudo -S apt-get -y install {module}".split()
-	kwargs = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="ascii")
-	if pwd:
-		kwargs.update(input=pwd)
-	cmd = subprocess.run(args, **kwargs)
-	return cmd.stdout, cmd.stderr
+import sys
 
 
 def after_install():
-	modules = ["libmagic1", "libreoffice"]
-	if platform != "linux":
-		print(f"You need to manually install the following modules: {', '.join(modules)}.")
-		return
-
-	has_sudo_permissions = is_root() or test_sudo()
-	pwd = ""
-	if not has_sudo_permissions:
-		pwd = getpass(f"Provide sudo password to install {', '.join(modules)}: ")
-
-	for module in modules:
+	"""
+	Post install script to ensure required system dependencies are present.
+	Installs libmagic1 and libreoffice if not already installed.
+	"""
+	# Install libmagic1
+	try:
+		subprocess.run(
+			["dpkg-query", "-W", "-f=${Status}", "libmagic1"],
+			check=True,
+			capture_output=True,
+		)
+		print("libmagic1 is already installed.")
+	except subprocess.CalledProcessError:
+		print("libmagic1 not found. Attempting to install...")
 		try:
-			out, err = install(module, pwd)
-			if err:
-				print(f"There was an error installing {module}: {err}.")
-			if out:
-				print(f"{module}: {out}")
+			subprocess.run(["sudo", "apt-get", "update"], check=True)
+			subprocess.run(["sudo", "apt-get", "install", "-y", "libmagic1"], check=True)
+			print("libmagic1 installed successfully.")
 		except Exception as e:
-			print(f"There was an error installing {module}: {e}.")
+			print(f"Failed to install libmagic1 automatically. Please install it manually. Error: {e}")
+			sys.exit(1)
+
+	# Install libreoffice
+	try:
+		subprocess.run(
+			["libreoffice", "--version"],
+			check=True,
+			capture_output=True,
+		)
+		print("LibreOffice is already installed.")
+	except (subprocess.CalledProcessError, FileNotFoundError):
+		print("LibreOffice not found. Attempting to install...")
+		try:
+			subprocess.run(["sudo", "apt-get", "install", "-y", "libreoffice"], check=True)
+			print("LibreOffice installed successfully.")
+		except Exception as e:
+			print(f"Failed to install LibreOffice automatically. Please install it manually. Error: {e}")
+			sys.exit(1)
