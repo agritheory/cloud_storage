@@ -99,6 +99,7 @@ has_permission = {
 
 override_doctype_class = {"File": "cloud_storage.cloud_storage.overrides.file.CloudStorageFile"}
 
+check_overrides = ["cloud_storage.cloud_storage.overrides.file.CloudStorageFile"]
 # Document Events
 # ---------------
 # Hook on document methods and events
