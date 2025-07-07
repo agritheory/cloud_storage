@@ -12,9 +12,41 @@ frappe.ui.form.on('File', {
 		}
 
 		let file_string = frm.doc.file_type || frm.doc.file_name
+
 		file_string = file_string.toLowerCase()
 		if (['doc', 'docx'].some(extension => file_string.includes(extension))) {
 			frm.trigger('preview_doc_content')
+		} else if (['ppt', 'pptx', 'odp', 'key'].some(extension => file_string.includes(extension))) {
+			frm.trigger('preview_file_as_pdf')
+		}
+	},
+
+	preview_file_as_pdf: async function (frm) {
+		const response = await frm.call('get_pdf_preview')
+		let pdf_content = response.message
+		if (pdf_content) {
+			// Always treat as base64 string from backend
+			const byteCharacters = atob(pdf_content)
+			const byteNumbers = new Array(byteCharacters.length)
+			for (let i = 0; i < byteCharacters.length; i++) {
+				byteNumbers[i] = byteCharacters.charCodeAt(i)
+			}
+			const byteArray = new Uint8Array(byteNumbers)
+			const blob = new Blob([byteArray], { type: 'application/pdf' })
+			const url = URL.createObjectURL(blob)
+			const field = frm.get_field('preview_html')
+			const $preview = $(`<div class="img_preview">
+			   <object style="background:#323639;" width="100%">
+				   <embed
+					   style="background:#323639;"
+					   width="100%"
+					   height="1190"
+					   src="${url}" type="application/pdf"
+				   >
+			   </object>
+		   </div>`)
+			field.$wrapper.html($preview)
+			frm.toggle_display('preview', true)
 		}
 	},
 

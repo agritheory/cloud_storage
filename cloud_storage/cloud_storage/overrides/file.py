@@ -1,12 +1,15 @@
 # Copyright (c) 2024, AgriTheory and contributors
 # For license information, please see license.txt
 
+import base64
 import json
 import os
 import re
+import subprocess
 import types
 import uuid
 from mimetypes import guess_type
+from pathlib import Path
 from urllib.parse import quote, unquote
 from urllib.request import urlopen
 
@@ -224,7 +227,6 @@ class CloudStorageFile(File):
 				except UnicodeDecodeError:
 					# for .png, .jpg, etc
 					pass
-
 		return self._content
 
 	def get_full_path(self):
@@ -261,6 +263,42 @@ class CloudStorageFile(File):
 			frappe.throw(_("File name cannot have {0}").format(os.path.sep))
 
 		return file_path
+
+	@frappe.whitelist()
+	def get_pdf_preview(self):
+		if self.is_folder:
+			frappe.throw(_("Cannot get file contents of a Folder"))
+
+		import tempfile
+
+		ext = self.file_name.split(".")[-1].lower()
+		client = get_cloud_storage_client()
+		ppt_s3_key = self.s3_key
+		with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as temp_ppt:
+			ppt_bytes = client.get_object(Bucket=client.bucket, Key=ppt_s3_key)["Body"].read()
+			temp_ppt.write(ppt_bytes)
+			temp_ppt.flush()
+			ppt_path = Path(temp_ppt.name)
+			with tempfile.TemporaryDirectory() as tmpdir:
+				tmpdir_path = Path(tmpdir)
+				subprocess.run(
+					[
+						"libreoffice",
+						"--headless",
+						"--convert-to",
+						"pdf",
+						"--outdir",
+						str(tmpdir_path),
+						str(ppt_path),
+					],
+					check=True,
+				)
+				pdf_filename = ppt_path.with_suffix(".pdf").name
+				pdf_path = tmpdir_path / pdf_filename
+				with open(pdf_path, "rb") as f:
+					pdf_bytes = f.read()
+					encoded = base64.b64encode(pdf_bytes).decode("utf-8")
+					return encoded
 
 
 def has_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:
