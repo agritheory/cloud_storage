@@ -28,6 +28,11 @@ def example_file_record_2():
 
 
 @pytest.fixture
+def example_file_record_4():
+	return Path(__file__).parent / "fixtures" / "sample.doc"
+
+
+@pytest.fixture
 def get_cloud_storage_client_fixture():
 	return frappe.call("cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client")
 
@@ -55,6 +60,19 @@ def create_upload_file(file_path: Path, **kwargs) -> CloudStorageFile:
 	frappe.local.form_dict.file_name = kwargs.get("file_name") or None
 	frappe.local.form_dict.optimize = kwargs.get("optimize") or False
 	file = frappe.call("frappe.handler.upload_file")
+	return file
+
+
+def save_file_locally_if_no_cloud_storage(file):
+	"""
+	Save the file on the local filesystem if cloud storage is not configured or use_local is True.
+	Returns the file object after saving.
+	"""
+	if not getattr(frappe.conf, "cloud_storage_settings", None) or (
+		frappe.conf.cloud_storage_settings and frappe.conf.cloud_storage_settings.get("use_local", False)
+	):
+		file.save_file_on_filesystem()
+		return file
 	return file
 
 
@@ -127,3 +145,31 @@ def test_delete_file(example_file_record_2):
 
 	with pytest.raises(frappe.exceptions.DoesNotExistError):
 		retrieve(s3_key)
+
+
+@mock_s3
+def test_save_file_without_S3_and_preview(example_file_record_4):
+	"""
+	Test that save_file_locally_if_no_cloud_storage saves the file locally and preview features work.
+	"""
+	frappe.set_user("Administrator")
+	# Unset cloud storage settings
+	if hasattr(frappe.conf, "cloud_storage_settings"):
+		old_settings = frappe.conf.cloud_storage_settings
+		frappe.conf.cloud_storage_settings = None
+	else:
+		old_settings = None
+
+	try:
+		file = create_upload_file(example_file_record_4, file_name="sample.doc")
+		file = save_file_locally_if_no_cloud_storage(file)
+		assert frappe.db.exists("File", file.name)
+		assert file.file_name == "sample.doc"
+		content = file.get_content()
+		assert content is not None
+		path = file.get_full_path()
+		assert Path(path).exists()
+	finally:
+		# Restore settings
+		if old_settings is not None:
+			frappe.conf.cloud_storage_settings = old_settings

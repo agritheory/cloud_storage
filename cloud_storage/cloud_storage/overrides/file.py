@@ -141,7 +141,8 @@ class CloudStorageFile(File):
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
 			existing_file.append(
-				"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+				"file_association",
+				add_child_file_association(attached_to_doctype, attached_to_name),
 			)
 			existing_file.save()
 		else:
@@ -149,11 +150,13 @@ class CloudStorageFile(File):
 				link_names = [i.link_name for i in self.file_association]
 				if attached_to_name not in link_names:
 					self.append(
-						"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+						"file_association",
+						add_child_file_association(attached_to_doctype, attached_to_name),
 					)
 			else:
 				self.append(
-					"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
 				)
 
 	def add_file_version(self, version_id):
@@ -209,7 +212,10 @@ class CloudStorageFile(File):
 		elif self.file_url.startswith("http://") or self.file_url.startswith("https://"):
 			self._content = urlopen(self.file_url).read()
 		else:
-			file_path = quote(self.get_full_path())
+			if not self.is_private:
+				file_path = frappe.get_site_path("public", "files", self.file_name)
+			else:
+				file_path = frappe.get_site_path("private", "files", self.file_name)
 			with open(file_path, mode="rb") as f:
 				self._content = f.read()
 				try:
