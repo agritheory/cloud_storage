@@ -52,7 +52,8 @@ doctype_js = {"File": "public/js/file.js"}
 # ----------
 
 # automatically create page for each record of this doctype
-# website_generators = ["Web Page"]
+website_generators = ["Web Page"]
+web_template_include_paths = {"dae-preview": "www/dae-preview.html"}
 
 # Jinja
 # ----------

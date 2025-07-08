@@ -141,7 +141,8 @@ class CloudStorageFile(File):
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
 			existing_file.append(
-				"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+				"file_association",
+				add_child_file_association(attached_to_doctype, attached_to_name),
 			)
 			existing_file.save()
 		else:
@@ -149,11 +150,13 @@ class CloudStorageFile(File):
 				link_names = [i.link_name for i in self.file_association]
 				if attached_to_name not in link_names:
 					self.append(
-						"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+						"file_association",
+						add_child_file_association(attached_to_doctype, attached_to_name),
 					)
 			else:
 				self.append(
-					"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
 				)
 
 	def add_file_version(self, version_id):
@@ -255,6 +258,20 @@ class CloudStorageFile(File):
 			frappe.throw(_("File name cannot have {0}").format(os.path.sep))
 
 		return file_path
+
+	def get_3d_model_content(self):
+		"""Fetches the content of a 3D model file."""
+		if not self.file_url:
+			frappe.throw(_("File URL is not set for this file."))
+
+		if not self.file_name.lower().endswith((".dae", ".fbx")):
+			frappe.throw(_("Unsupported file type for 3D model preview."))
+
+		content = self.get_content()
+		return {
+			"file_name": self.file_name,
+			"content": content.decode("utf-8", errors="ignore"),  # Assuming the content is text-based
+		}
 
 
 def has_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:

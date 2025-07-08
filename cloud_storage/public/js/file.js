@@ -16,6 +16,13 @@ frappe.ui.form.on('File', {
 		if (['doc', 'docx'].some(extension => file_string.includes(extension))) {
 			frm.trigger('preview_doc_content')
 		}
+		const modelExtensions = ['.dae', '.fbx', '.gltf', '.glb', '.obj', '.ply', '.stl']
+		if (modelExtensions.some(ext => frm.doc.file_url.toLowerCase().endsWith(ext))) {
+			frm.add_web_link('/preview-model?file_url=' + encodeURIComponent(frm.doc.file_url), 'Preview 3D Model')
+		}
+	},
+	preview_3d_model: async function (frm) {
+		const response = await frm.call('get_3d_model_content')
 	},
 
 	preview_doc_content: async function (frm) {

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>3D Model Viewer</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/controls/OrbitControls.js';
+    import { ColladaLoader } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/loaders/ColladaLoader.js';
+    import { FBXLoader } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/loaders/FBXLoader.js';
+    import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/loaders/GLTFLoader.js';
+    import { OBJLoader } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/loaders/OBJLoader.js';
+    import { PLYLoader } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/loaders/PLYLoader.js';
+    import { STLLoader } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/loaders/STLLoader.js';
+
+    const fileUrl = new URLSearchParams(window.location.search).get("file_url");
+    const ext = fileUrl.split('.').pop().toLowerCase();
+
+    let loader;
+    let addToScene = (object) => {
+      scene.add(object);
+    };
+
+    switch (ext) {
+      case 'dae':
+        loader = new ColladaLoader();
+        loader.load(fileUrl, collada => addToScene(collada.scene));
+        break;
+      case 'fbx':
+        loader = new FBXLoader();
+        loader.load(fileUrl, addToScene);
+        break;
+      case 'gltf':
+      case 'glb':
+        loader = new GLTFLoader();
+        loader.load(fileUrl, gltf => addToScene(gltf.scene));
+        break;
+      case 'obj':
+        loader = new OBJLoader();
+        loader.load(fileUrl, addToScene);
+        break;
+      case 'ply':
+        loader = new PLYLoader();
+        loader.load(fileUrl, geometry => {
+          const material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
+          const mesh = new THREE.Mesh(geometry, material);
+          addToScene(mesh);
+        });
+        break;
+      case 'stl':
+        loader = new STLLoader();
+        loader.load(fileUrl, geometry => {
+          const material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
+          const mesh = new THREE.Mesh(geometry, material);
+          addToScene(mesh);
+        });
+        break;
+      default:
+        alert("Unsupported file format: " + ext);
+        throw new Error("Unsupported file format");
+    }
+
+    // Setup Three.js scene
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    camera.position.set(0, 1, 5);
+    controls.update();
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(ambientLight, directionalLight);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
