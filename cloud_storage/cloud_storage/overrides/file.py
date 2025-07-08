@@ -33,6 +33,12 @@ URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 class CloudStorageFile(File):
 	@File.is_remote_file.getter
 	def is_remote_file(self) -> bool:
+		"""
+		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		REPO: https://github.com/frappe/frappe
+		PATH: frappe/core/doctype/file/file.py
+		METHOD: is_remote_file
+		"""
 		if self.file_url:  # type: ignore
 			return self.file_url.startswith(URL_PREFIXES)  # type: ignore
 		return not self.content
@@ -41,6 +47,12 @@ class CloudStorageFile(File):
 		return has_permission(self, ptype, user)
 
 	def validate(self) -> None:
+		"""
+		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		REPO: https://github.com/frappe/frappe
+		PATH: frappe/core/doctype/file/file.py
+		METHOD: validate
+		"""
 		self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
@@ -73,6 +85,12 @@ class CloudStorageFile(File):
 		self.file_size = frappe.form_dict.file_size or self.file_size
 
 	def after_insert(self) -> File:
+		"""
+		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		REPO: https://github.com/frappe/frappe
+		PATH: frappe/core/doctype/file/file.py
+		METHOD: after_insert
+		"""
 		if self.attached_to_doctype and self.attached_to_name and not self.file_association:  # type: ignore
 			if not self.content_hash and "/api/method/retrieve" in self.file_url:  # type: ignore
 				associated_doc = frappe.get_value("File", {"file_url": self.file_url}, "name")  # type: ignore
@@ -97,6 +115,12 @@ class CloudStorageFile(File):
 				)
 
 	def on_trash(self) -> None:
+		"""
+		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		REPO: https://github.com/frappe/frappe
+		PATH: frappe/core/doctype/file/file.py
+		METHOD: on_trash
+		"""
 		user_roles = frappe.get_roles(frappe.session.user)
 		if (
 			frappe.session.user != "Administrator"
@@ -141,7 +165,8 @@ class CloudStorageFile(File):
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
 			existing_file.append(
-				"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+				"file_association",
+				add_child_file_association(attached_to_doctype, attached_to_name),
 			)
 			existing_file.save()
 		else:
@@ -149,11 +174,13 @@ class CloudStorageFile(File):
 				link_names = [i.link_name for i in self.file_association]
 				if attached_to_name not in link_names:
 					self.append(
-						"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+						"file_association",
+						add_child_file_association(attached_to_doctype, attached_to_name),
 					)
 			else:
 				self.append(
-					"file_association", add_child_file_association(attached_to_doctype, attached_to_name)
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
 				)
 
 	def add_file_version(self, version_id):
@@ -188,6 +215,12 @@ class CloudStorageFile(File):
 
 	@frappe.whitelist()
 	def get_content(self) -> bytes:
+		"""
+		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		REPO: https://github.com/frappe/frappe
+		PATH: frappe/core/doctype/file/file.py
+		METHOD: get_content
+		"""
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))
 
@@ -222,6 +255,12 @@ class CloudStorageFile(File):
 		return self._content
 
 	def get_full_path(self):
+		"""
+		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		REPO: https://github.com/frappe/frappe
+		PATH: frappe/core/doctype/file/file.py
+		METHOD: get_full_path
+		"""
 		"""Returns file path from given file name"""
 
 		file_path = self.file_url or self.file_name
@@ -258,6 +297,12 @@ class CloudStorageFile(File):
 
 
 def has_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:
+	"""
+	HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+	REPO: https://github.com/frappe/frappe
+	PATH: frappe/core/doctype/file/file.py
+	METHOD: has_permission
+	"""
 	has_access = False
 	user = frappe.session.user if not user else user
 	# check if public
@@ -447,6 +492,12 @@ def get_file_content_hash(content, content_type):
 
 @frappe.whitelist()
 def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
+	"""
+	HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+	REPO: https://github.com/frappe/frappe
+	PATH: frappe/core/doctype/file/file.py
+	METHOD: write_file
+	"""
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -497,6 +548,12 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 @frappe.whitelist()
 def delete_file(file: File, **kwargs) -> File:
+	"""
+	HASH: 354843a7a42249f2bd1a96706a9ae70dedc610ff
+	REPO: https://github.com/frappe/frappe
+	PATH: frappe/core/doctype/file/file.py
+	METHOD: delete_file_data_content
+	"""
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -587,6 +644,12 @@ def share(key: str) -> None:
 
 @frappe.whitelist(methods=["DELETE", "POST"])
 def remove_attach():
+	"""
+	HASH: 354843a7a42249f2bd1a96706a9ae70dedc610ff
+	REPO: https://github.com/frappe/frappe
+	PATH: frappe/desk/form/utils.py
+	METHOD: remove_attach
+	"""
 	fid = frappe.form_dict.get("fid")
 	dt = frappe.form_dict.get("dt")
 	dn = frappe.form_dict.get("dn")
