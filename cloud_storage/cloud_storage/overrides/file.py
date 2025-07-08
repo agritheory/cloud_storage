@@ -492,12 +492,6 @@ def get_file_content_hash(content, content_type):
 
 @frappe.whitelist()
 def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
-	"""
-	HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
-	REPO: https://github.com/frappe/frappe
-	PATH: frappe/core/doctype/file/file.py
-	METHOD: write_file
-	"""
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
@@ -548,12 +542,6 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 @frappe.whitelist()
 def delete_file(file: File, **kwargs) -> File:
-	"""
-	HASH: 354843a7a42249f2bd1a96706a9ae70dedc610ff
-	REPO: https://github.com/frappe/frappe
-	PATH: frappe/core/doctype/file/file.py
-	METHOD: delete_file_data_content
-	"""
 	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
 		"use_local", False
 	):
