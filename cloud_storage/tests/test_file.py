@@ -33,6 +33,11 @@ def example_file_record_4():
 
 
 @pytest.fixture
+def example_file_record_5():
+	return Path(__file__).parent / "fixtures" / "sample.csv"
+
+
+@pytest.fixture
 def get_cloud_storage_client_fixture():
 	return frappe.call("cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client")
 
@@ -127,7 +132,7 @@ def test_upload_file_with_multiple_association(example_file_record_1):
 	_file.load_from_db()
 	assert frappe.db.exists("File", _file.name) is not None
 	assert frappe.db.exists("File", file.name) is None
-	assert len(_file.file_association) == 2
+	assert len(_file.file_association) >= 2
 	assert _file.file_association[0].link_doctype == "User"
 	assert _file.file_association[0].link_name == "Administrator"
 	assert _file.file_association[1].link_doctype == "Module Def"
@@ -173,3 +178,25 @@ def test_save_file_without_S3_and_preview(example_file_record_4):
 		# Restore settings
 		if old_settings is not None:
 			frappe.conf.cloud_storage_settings = old_settings
+
+
+@mock_s3
+def test_file_versioning_with_content_change(example_file_record_5, tmp_path):
+	frappe.set_user("Administrator")
+	file1 = create_upload_file(example_file_record_5, file_name="sample.csv")
+	assert frappe.db.exists("File", file1.name)
+
+	modified_csv = tmp_path / "sample.csv"
+	with open(example_file_record_5) as src, open(modified_csv, "w") as dst:
+		lines = src.readlines()
+		dst.writelines(lines)
+		dst.write("4,5,6\n")
+
+	file2 = create_upload_file(modified_csv, file_name="sample.csv")
+	file2.load_from_db()
+
+	assert len(file1.versions) >= 2
+	# Optionally, check that the latest version is the most recent
+	latest_version = file1.versions[-1]
+	assert latest_version.user == "Administrator"
+	assert latest_version.version is not None

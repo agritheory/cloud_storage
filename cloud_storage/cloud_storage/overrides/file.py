@@ -98,6 +98,38 @@ class CloudStorageFile(File):
 					ignore_permissions=True,
 					# validate=False,
 				)
+		elif self.attached_to_doctype and self.attached_to_name and self.file_name:  # type: ignore
+			associated_doc = frappe.db.get_value(
+				"File",
+				{
+					"file_name": ["=", self.file_name],
+					"name": ["!=", self.name],
+					"is_folder": False,
+				},
+				"name",  # type: ignore
+			)
+			if associated_doc:
+				doc = frappe.get_doc("File", associated_doc)
+				# Merge file associations
+				doc.append(
+					"file_association",
+					add_child_file_association(
+						self.attached_to_doctype,  # type: ignore
+						self.attached_to_name,  # type: ignore
+					),
+				)
+				already_linked = any(version.version == self.content_hash for version in self.versions)
+				if not already_linked:
+					doc.append(
+						"versions",
+						{
+							"version": str(self.content_hash),
+							"user": frappe.session.user,
+							"timestamp": get_datetime(),
+						},
+					)
+				doc.save()
+				frappe.delete_doc("File", self.name, ignore_permissions=True)
 
 	def on_trash(self) -> None:
 		user_roles = frappe.get_roles(frappe.session.user)
@@ -150,8 +182,11 @@ class CloudStorageFile(File):
 			existing_file.save()
 		else:
 			if self.file_association:
-				link_names = [i.link_name for i in self.file_association]
-				if attached_to_name not in link_names:
+				already_linked = any(
+					assoc.link_doctype == attached_to_doctype and assoc.link_name == attached_to_name
+					for assoc in self.file_association
+				)
+				if not already_linked:
 					self.append(
 						"file_association",
 						add_child_file_association(attached_to_doctype, attached_to_name),
@@ -454,6 +489,7 @@ def upload_file(file: File) -> File:
 		)
 		if response.get("VersionId"):
 			file.add_file_version(response.get("VersionId"))
+		file.associate_files(file.attached_to_doctype, file.attached_to_name)
 	except S3UploadFailedError:
 		frappe.throw(_("File Upload Failed. Please try again."))
 	except Exception as e:
