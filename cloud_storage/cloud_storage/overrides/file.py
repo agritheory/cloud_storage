@@ -541,22 +541,26 @@ def upload_file(file: File) -> File:
 
 
 def get_file_path(file: File, folder: str | None = None) -> str:
-	parent_doctype = file.attached_to_doctype or "No Doctype"
+	custom_storage_path_generator = frappe.get_hooks("cloud_storage_path_generator")
 
-	attached_to_name = ""
-	if file.attached_to_name:
-		attached_to_name = file.attached_to_name.replace("#", "%23")
+	if custom_storage_path_generator and len(custom_storage_path_generator) > 0:
+		try:
+			generator_fn = frappe.get_attr(custom_storage_path_generator[0])
+			return generator_fn(file, folder)
+		except Exception as e:
+			frappe.log_error(f"Custom path generator failed: {str(e)}", "Cloud Storage Path Error")
 
-	fragments = [
-		folder,
-		parent_doctype,
-		attached_to_name,
-		file.file_name.replace("#", "%23"),
-	]
+	file_name = file.file_name
 
-	valid_fragments: list[str] = list(filter(None, fragments))
-	path = "/".join(valid_fragments)
-	return path
+	if file.file_name and "." in file.file_name:
+		extension = Path(file.file_name).suffix
+		if not file_name.endswith(extension):
+			file_name = f"{file_name}{extension}"
+
+	if folder:
+		return f"{folder}/{file_name}"
+
+	return file_name
 
 
 def get_file_content_hash(content, content_type):
