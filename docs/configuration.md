@@ -38,6 +38,10 @@ Set the following keys in your site's configuration file (`/sites/{site_name}/si
     // (optional) time before the generated URL for the file expires, in seconds
     // default: 120 seconds
     "expiration": 120,
+
+    // Optional: use new path strategy instead of legacy
+    // Default: true (uses legacy folder/doctype/attached_to_name/docname paths)
+    "use_legacy_paths": 0
   }
   ...
 }
