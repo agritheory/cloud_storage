@@ -550,10 +550,33 @@ def get_file_path(file: File, folder: str | None = None) -> str:
 		except Exception as e:
 			frappe.log_error(f"Custom path generator failed: {str(e)}", "Cloud Storage Path Error")
 
+	config = frappe.conf.get("cloud_storage_settings", {})
+	if config.get("use_legacy_paths", True):
+		return _legacy_get_file_path(file, folder)
+
 	if folder:
 		return f"{folder}/{file.file_name}"
 
 	return file.file_name
+
+
+def _legacy_get_file_path(file: File, folder: str | None = None) -> str:
+	parent_doctype = file.attached_to_doctype or "No Doctype"
+
+	attached_to_name = ""
+	if file.attached_to_name:
+		attached_to_name = file.attached_to_name.replace("#", "%23")
+
+	fragments = [
+		folder,
+		parent_doctype,
+		attached_to_name,
+		file.file_name.replace("#", "%23"),
+	]
+
+	valid_fragments: list[str] = list(filter(None, fragments))
+	path = "/".join(valid_fragments)
+	return path
 
 
 def get_file_content_hash(content, content_type):
