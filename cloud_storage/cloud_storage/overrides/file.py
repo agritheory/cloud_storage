@@ -84,7 +84,6 @@ class CloudStorageFile(File):
 		config = frappe.conf.cloud_storage_settings
 		if not config or config.get("use_local"):
 			self.validate_file_on_disk()
-
 		self.file_size = frappe.form_dict.file_size or self.file_size
 
 	def after_insert(self) -> File:
