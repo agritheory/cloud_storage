@@ -18,7 +18,7 @@ The default path generator uses the File document's `name` field and respects th
 
 ```python
 # Default path structure:
-# {folder}/{file.name}.{extension}
+# {folder}/{file.file_name}
 
 # Examples (with folder="documents" in site_config.json):
 # - documents/file-1.pdf
