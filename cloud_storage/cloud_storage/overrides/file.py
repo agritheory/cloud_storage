@@ -550,17 +550,10 @@ def get_file_path(file: File, folder: str | None = None) -> str:
 		except Exception as e:
 			frappe.log_error(f"Custom path generator failed: {str(e)}", "Cloud Storage Path Error")
 
-	file_name = file.file_name
-
-	if file.file_name and "." in file.file_name:
-		extension = Path(file.file_name).suffix
-		if not file_name.endswith(extension):
-			file_name = f"{file_name}{extension}"
-
 	if folder:
-		return f"{folder}/{file_name}"
+		return f"{folder}/{file.file_name}"
 
-	return file_name
+	return file.file_name
 
 
 def get_file_content_hash(content, content_type):
