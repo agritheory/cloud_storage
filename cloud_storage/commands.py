@@ -86,7 +86,7 @@ def migrate_cloud_storage_paths(context, site=None, dry_run=False, limit=None, b
 	try:
 		from cloud_storage.migration import migrate_paths
 
-		migrate_paths(dry_run=dry_run, limit=limit)
+		migrate_paths(dry_run=dry_run, limit=limit, batch_size=batch_size)
 	finally:
 		frappe.destroy()
 
