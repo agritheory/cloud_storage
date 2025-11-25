@@ -78,7 +78,7 @@
 			"is_system_generated": 0,
 			"is_virtual": 0,
 			"label": "S3 Key",
-			"length": 0,
+			"length": 300,
 			"modified": "2024-08-12 12:17:11.524307",
 			"modified_by": "Administrator",
 			"module": "Cloud Storage",
