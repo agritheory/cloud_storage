@@ -51,7 +51,7 @@ class CloudStorageFile(File):
 
 	def validate(self) -> None:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: c6deff534edaf22506142150303f96e4518f23c9
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
@@ -84,7 +84,6 @@ class CloudStorageFile(File):
 		config = frappe.conf.cloud_storage_settings
 		if not config or config.get("use_local"):
 			self.validate_file_on_disk()
-
 		self.file_size = frappe.form_dict.file_size or self.file_size
 
 	def after_insert(self) -> File:
