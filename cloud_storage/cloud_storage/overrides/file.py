@@ -102,7 +102,7 @@ class CloudStorageFile(File):
 					"File",
 					{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
 				)
-			if associated_doc:
+			if associated_doc and associated_doc != self.name:
 				self.db_set(
 					"file_url", ""
 				)  # this is done to prevent deletion of the remote file with the delete_file hook
@@ -116,6 +116,14 @@ class CloudStorageFile(File):
 					ignore_permissions=True,
 					# validate=False,
 				)
+			if associated_doc and not self.s3_key:
+				s3_key = None
+				if "?key=" in self.file_url:
+					s3_key = self.file_url.split("?key=")[1]
+				elif "key=" in self.file_url:
+					s3_key = self.file_url.split("key=")[1].split("&")[0]
+				frappe.db.set_value("File", associated_doc, "s3_key", s3_key)
+				frappe.db.commit()
 		elif self.attached_to_doctype and self.attached_to_name and self.file_name:  # type: ignore
 			associated_doc = frappe.db.get_value(
 				"File",
