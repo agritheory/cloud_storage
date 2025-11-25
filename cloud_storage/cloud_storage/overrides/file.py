@@ -233,6 +233,8 @@ class CloudStorageFile(File):
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
+			frappe.db.delete("File Association", {"parent": self.name})
+			frappe.db.commit()
 			self.delete()
 			return
 		to_remove = []
