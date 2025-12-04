@@ -3,13 +3,16 @@
 
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 import frappe
 import pytest
+from conftest import mocked_s3_client
 from moto import mock_s3
 from werkzeug.datastructures import FileMultiDict
 
 from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, retrieve
+from cloud_storage.migration import migrate_files
 
 
 @pytest.fixture
@@ -35,6 +38,11 @@ def example_file_record_4():
 @pytest.fixture
 def example_file_record_5():
 	return Path(__file__).parent / "fixtures" / "sample.csv"
+
+
+@pytest.fixture
+def example_file_record_6():
+	return Path(__file__).parent / "fixtures" / "diamo.png"
 
 
 @pytest.fixture
@@ -153,7 +161,7 @@ def test_delete_file(example_file_record_2):
 
 
 @mock_s3
-def test_save_file_without_S3_and_preview(example_file_record_4):
+def test_save_file_without_S3_and_preview(example_file_record_4, example_file_record_6):
 	"""
 	Test that save_file_locally_if_no_cloud_storage saves the file locally and preview features work.
 	"""
@@ -200,3 +208,56 @@ def test_file_versioning_with_content_change(example_file_record_5, tmp_path):
 	latest_version = file1.versions[-1]
 	assert latest_version.user == "Administrator"
 	assert latest_version.version is not None
+
+
+def test_migration_command(mocked_s3_client, example_file_record_6):
+	"""
+	Test that save_file_locally_if_no_cloud_storage saves the file locally and preview features work.
+	"""
+	frappe.set_user("Administrator")
+	# Unset cloud storage settings
+	if hasattr(frappe.conf, "cloud_storage_settings"):
+		old_settings = frappe.conf.cloud_storage_settings
+		frappe.conf.cloud_storage_settings = None
+	else:
+		old_settings = None
+
+	try:
+		file = create_upload_file(example_file_record_6, file_name="diamo.png")
+		file = save_file_locally_if_no_cloud_storage(file)
+		assert frappe.db.exists("File", file.name)
+		assert file.file_name == "diamo.png"
+		assert file.s3_key is None
+		content = file.get_content()
+		assert content is not None
+		path = file.get_full_path()
+		assert Path(path).exists()
+		original_file_size = Path(path).stat().st_size
+	finally:
+		# Restore settings
+		if old_settings is not None:
+			frappe.conf.cloud_storage_settings = old_settings
+
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch("cloud_storage.migration.get_cloud_storage_client", return_value=mocked_s3_client):
+		migrate_files(doctype="User")
+
+	file = frappe.get_doc("File", file.name)
+
+	assert file.s3_key is not None
+	assert file.file_url is not None
+	assert len(file.file_association) == 1
+	assert file.file_association[0].link_doctype == "User"
+	assert file.file_association[0].link_name == "Administrator"
+
+	response = mocked_s3_client.head_object(Bucket=mocked_s3_client.bucket, Key=file.s3_key)
+	s3_file_size = response["ContentLength"]
+
+	print(f"Original file size: {original_file_size} bytes")
+	print(f"S3 file size: {s3_file_size} bytes")
+
+	assert (
+		s3_file_size == original_file_size
+	), f"File size mismatch: local={original_file_size}, s3={s3_file_size}"

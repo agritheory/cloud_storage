@@ -12,6 +12,8 @@ See the following pages for detailed instructions on Cloud Storage installation 
 - [Cloud Storage Developer Environment Installation](./development.md)
 - [Cloud Storage Production Environment Installation](./production.md)
 - [Cloud Storage Configuration](./configuration.md)
+- [Hooks](./hooks.md)
+- [Commands](./commands.md)
 
 ## Cloud Storage Quick Start
 
