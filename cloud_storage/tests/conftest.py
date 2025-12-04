@@ -4,9 +4,11 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import boto3
 import frappe
 import pytest
 from frappe.utils import get_bench_path
+from moto import mock_s3
 
 
 def _get_logger(*args, **kwargs):
@@ -21,6 +23,19 @@ def _get_logger(*args, **kwargs):
 		file_count=20,
 		stream_only=True,
 	)
+
+
+class _MockedS3Client:
+	"""Wrapper around boto3 S3 client to add custom attributes"""
+
+	def __init__(self, client, bucket, folder, expiration):
+		self._client = client
+		self.bucket = bucket
+		self.folder = folder
+		self.expiration = expiration
+
+	def __getattr__(self, attr):
+		return getattr(self._client, attr)
 
 
 @pytest.fixture(scope="module")
@@ -56,5 +71,20 @@ def patch_frappe_conf(monkeymodule):
 			"endpoint_url": "https://test.imgainarys3.edu",
 			"expiration": 110,
 			"folder": "test_folder",
+			"use_legacy_paths": 1,
 		},
 	)
+
+
+@pytest.fixture
+def mocked_s3_client():
+	with mock_s3():
+		client = boto3.client(
+			"s3",
+			region_name="us-east-1",
+			aws_access_key_id="testing",
+			aws_secret_access_key="testing",
+		)
+		bucket = "test_bucket"
+		client.create_bucket(Bucket=bucket)
+		yield _MockedS3Client(client, bucket, "test_folder", 110)
