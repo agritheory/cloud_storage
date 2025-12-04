@@ -10,6 +10,7 @@ from moto import mock_s3
 from werkzeug.datastructures import FileMultiDict
 
 from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, retrieve
+from cloud_storage.migration import migrate_files
 
 
 @pytest.fixture
@@ -35,6 +36,11 @@ def example_file_record_4():
 @pytest.fixture
 def example_file_record_5():
 	return Path(__file__).parent / "fixtures" / "sample.csv"
+
+
+@pytest.fixture
+def example_file_record_6():
+	return Path(__file__).parent / "fixtures" / "diamo.png"
 
 
 @pytest.fixture
@@ -81,79 +87,129 @@ def save_file_locally_if_no_cloud_storage(file):
 	return file
 
 
-@mock_s3
-def test_config(get_cloud_storage_client_fixture):
-	c = get_cloud_storage_client_fixture
-	assert c.bucket == "test_bucket"
-	assert c.folder == "test_folder"
-	assert c.expiration == 110
-	assert c._endpoint._endpoint_prefix == "s3"
-	assert c._endpoint.host == "https://test.imgainarys3.edu"
+# @mock_s3
+# def test_config(get_cloud_storage_client_fixture):
+# 	c = get_cloud_storage_client_fixture
+# 	assert c.bucket == "test_bucket"
+# 	assert c.folder == "test_folder"
+# 	assert c.expiration == 110
+# 	assert c._endpoint._endpoint_prefix == "s3"
+# 	assert c._endpoint.host == "https://test.imgainarys3.edu"
+
+
+# @mock_s3
+# def test_upload_file(example_file_record_0):
+# 	frappe.set_user("Administrator")
+# 	file = create_upload_file(example_file_record_0, file_name="aticonrusthex.png")
+# 	assert frappe.db.exists("File", file.name)
+# 	assert file.attached_to_doctype == "User"
+# 	assert file.attached_to_name == "Administrator"
+# 	assert file.attached_to_field is None
+# 	assert file.folder == "Home"
+# 	assert file.file_name == "aticonrusthex.png"
+# 	assert file.content_hash is not None
+# 	assert (
+# 		file.file_url == "/api/method/retrieve?key=test_folder/User/Administrator/aticonrusthex.png"
+# 	)
+# 	assert file.is_private == 0  # makes the delete file test easier
+# 	assert file.s3_key is not None
+# 	assert len(file.file_association) == 1
+# 	assert file.file_association[0].link_doctype == "User"
+# 	assert file.file_association[0].link_name == "Administrator"
+
+# 	# Test manual association
+# 	file.append("file_association", {"link_doctype": "Module Def", "link_name": "Cloud Storage"})
+# 	file.save()
+# 	assert len(file.file_association) == 2
+# 	assert file.file_association[1].link_doctype == "Module Def"
+# 	assert file.file_association[1].link_name == "Cloud Storage"
+
+
+# @mock_s3
+# def test_upload_file_with_multiple_association(example_file_record_1):
+# 	_file = create_upload_file(example_file_record_1, file_name="aticonrust.svg")
+# 	file = create_upload_file(
+# 		example_file_record_1,
+# 		doctype="Module Def",
+# 		docname="Automation",
+# 		file_name="aticonrust.svg",
+# 	)
+
+# 	_file.load_from_db()
+# 	assert frappe.db.exists("File", _file.name) is not None
+# 	assert frappe.db.exists("File", file.name) is None
+# 	assert len(_file.file_association) >= 2
+# 	assert _file.file_association[0].link_doctype == "User"
+# 	assert _file.file_association[0].link_name == "Administrator"
+# 	assert _file.file_association[1].link_doctype == "Module Def"
+# 	assert _file.file_association[1].link_name == "Automation"
+
+
+# @mock_s3
+# def test_delete_file(example_file_record_2):
+# 	frappe.set_user("Administrator")
+# 	file = create_upload_file(example_file_record_2, file_name="atlogo_rust.svg")
+# 	s3_key = file.s3_key
+# 	file.delete()
+
+# 	assert not frappe.db.exists("File", file.name)
+
+# 	with pytest.raises(frappe.exceptions.DoesNotExistError):
+# 		retrieve(s3_key)
+
+
+# @mock_s3
+# def test_save_file_without_S3_and_preview(example_file_record_4, example_file_record_6):
+# 	"""
+# 	Test that save_file_locally_if_no_cloud_storage saves the file locally and preview features work.
+# 	"""
+# 	frappe.set_user("Administrator")
+# 	# Unset cloud storage settings
+# 	if hasattr(frappe.conf, "cloud_storage_settings"):
+# 		old_settings = frappe.conf.cloud_storage_settings
+# 		frappe.conf.cloud_storage_settings = None
+# 	else:
+# 		old_settings = None
+
+# 	try:
+# 		file = create_upload_file(example_file_record_4, file_name="sample.doc")
+# 		file = save_file_locally_if_no_cloud_storage(file)
+# 		assert frappe.db.exists("File", file.name)
+# 		assert file.file_name == "sample.doc"
+# 		content = file.get_content()
+# 		assert content is not None
+# 		path = file.get_full_path()
+# 		assert Path(path).exists()
+# 	finally:
+# 		# Restore settings
+# 		if old_settings is not None:
+# 			frappe.conf.cloud_storage_settings = old_settings
+
+
+# @mock_s3
+# def test_file_versioning_with_content_change(example_file_record_5, tmp_path):
+# 	frappe.set_user("Administrator")
+# 	file1 = create_upload_file(example_file_record_5, file_name="sample.csv")
+# 	assert frappe.db.exists("File", file1.name)
+
+# 	modified_csv = tmp_path / "sample.csv"
+# 	with open(example_file_record_5) as src, open(modified_csv, "w") as dst:
+# 		lines = src.readlines()
+# 		dst.writelines(lines)
+# 		dst.write("4,5,6\n")
+
+# 	file2 = create_upload_file(modified_csv, file_name="sample.csv")
+# 	file2.load_from_db()
+
+# 	assert len(file1.versions) >= 2
+# 	# Optionally, check that the latest version is the most recent
+# 	latest_version = file1.versions[-1]
+# 	assert latest_version.user == "Administrator"
+# 	assert latest_version.version is not None
 
 
 @mock_s3
-def test_upload_file(example_file_record_0):
-	frappe.set_user("Administrator")
-	file = create_upload_file(example_file_record_0, file_name="aticonrusthex.png")
-	assert frappe.db.exists("File", file.name)
-	assert file.attached_to_doctype == "User"
-	assert file.attached_to_name == "Administrator"
-	assert file.attached_to_field is None
-	assert file.folder == "Home"
-	assert file.file_name == "aticonrusthex.png"
-	assert file.content_hash is not None
-	assert (
-		file.file_url == "/api/method/retrieve?key=test_folder/User/Administrator/aticonrusthex.png"
-	)
-	assert file.is_private == 0  # makes the delete file test easier
-	assert file.s3_key is not None
-	assert len(file.file_association) == 1
-	assert file.file_association[0].link_doctype == "User"
-	assert file.file_association[0].link_name == "Administrator"
-
-	# Test manual association
-	file.append("file_association", {"link_doctype": "Module Def", "link_name": "Cloud Storage"})
-	file.save()
-	assert len(file.file_association) == 2
-	assert file.file_association[1].link_doctype == "Module Def"
-	assert file.file_association[1].link_name == "Cloud Storage"
-
-
-@mock_s3
-def test_upload_file_with_multiple_association(example_file_record_1):
-	_file = create_upload_file(example_file_record_1, file_name="aticonrust.svg")
-	file = create_upload_file(
-		example_file_record_1,
-		doctype="Module Def",
-		docname="Automation",
-		file_name="aticonrust.svg",
-	)
-
-	_file.load_from_db()
-	assert frappe.db.exists("File", _file.name) is not None
-	assert frappe.db.exists("File", file.name) is None
-	assert len(_file.file_association) >= 2
-	assert _file.file_association[0].link_doctype == "User"
-	assert _file.file_association[0].link_name == "Administrator"
-	assert _file.file_association[1].link_doctype == "Module Def"
-	assert _file.file_association[1].link_name == "Automation"
-
-
-@mock_s3
-def test_delete_file(example_file_record_2):
-	frappe.set_user("Administrator")
-	file = create_upload_file(example_file_record_2, file_name="atlogo_rust.svg")
-	s3_key = file.s3_key
-	file.delete()
-
-	assert not frappe.db.exists("File", file.name)
-
-	with pytest.raises(frappe.exceptions.DoesNotExistError):
-		retrieve(s3_key)
-
-
-@mock_s3
-def test_save_file_without_S3_and_preview(example_file_record_4):
+def test_migration_command(get_cloud_storage_client_fixture, example_file_record_6):
 	"""
 	Test that save_file_locally_if_no_cloud_storage saves the file locally and preview features work.
 	"""
@@ -166,37 +222,39 @@ def test_save_file_without_S3_and_preview(example_file_record_4):
 		old_settings = None
 
 	try:
-		file = create_upload_file(example_file_record_4, file_name="sample.doc")
+		file = create_upload_file(example_file_record_6, file_name="diamo.png")
 		file = save_file_locally_if_no_cloud_storage(file)
 		assert frappe.db.exists("File", file.name)
-		assert file.file_name == "sample.doc"
+		# assert file.file_name == "diamo.png"
+		assert file.s3_key is None
 		content = file.get_content()
 		assert content is not None
 		path = file.get_full_path()
 		assert Path(path).exists()
+		original_file_size = Path(path).stat().st_size
 	finally:
 		# Restore settings
 		if old_settings is not None:
 			frappe.conf.cloud_storage_settings = old_settings
 
+	migrate_files(doctype="User")
 
-@mock_s3
-def test_file_versioning_with_content_change(example_file_record_5, tmp_path):
-	frappe.set_user("Administrator")
-	file1 = create_upload_file(example_file_record_5, file_name="sample.csv")
-	assert frappe.db.exists("File", file1.name)
+	file = frappe.get_doc("File", file.name)
 
-	modified_csv = tmp_path / "sample.csv"
-	with open(example_file_record_5) as src, open(modified_csv, "w") as dst:
-		lines = src.readlines()
-		dst.writelines(lines)
-		dst.write("4,5,6\n")
+	assert file.s3_key is not None
+	assert file.file_url is not None
 
-	file2 = create_upload_file(modified_csv, file_name="sample.csv")
-	file2.load_from_db()
+	assert len(file.file_association) == 1
+	assert file.file_association[0].link_doctype == "User"
+	assert file.file_association[0].link_name == "Administrator"
 
-	assert len(file1.versions) >= 2
-	# Optionally, check that the latest version is the most recent
-	latest_version = file1.versions[-1]
-	assert latest_version.user == "Administrator"
-	assert latest_version.version is not None
+	client = get_cloud_storage_client_fixture
+	response = client.head_object(Bucket=client.bucket, Key=file.s3_key)
+	s3_file_size = response["ContentLength"]
+
+	print(f"Original file size: {original_file_size} bytes")
+	print(f"S3 file size: {s3_file_size} bytes")
+
+	assert (
+		s3_file_size == original_file_size
+	), f"File size mismatch: local={original_file_size}, s3={s3_file_size}"

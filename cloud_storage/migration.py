@@ -109,7 +109,10 @@ def migrate_files(
 		for file_data in batch:
 			try:
 				file_doc = frappe.get_doc("File", file_data.name)
-				file_path = get_site_path(file_doc.file_url.lstrip("/"))
+				if not file_doc.is_private:
+					file_path = frappe.get_site_path("public", file_doc.file_url.lstrip("/"))
+				else:
+					file_path = frappe.get_site_path("private", "files", file_doc.file_name)
 
 				if not os.path.exists(file_path):
 					print(f"⚠️  SKIP: {file_doc.name} - Local file not found: {file_path}")
