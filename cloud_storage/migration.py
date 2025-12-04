@@ -140,7 +140,7 @@ def migrate_files(
 					with open(file_path, "rb") as f:
 						file_content = f.read()
 
-					file_doc._content = file_content
+					file_doc.content = file_content
 					content_type, _ = mimetypes.guess_type(file_doc.file_name)
 					file_doc.content_type = content_type or "application/octet-stream"
 
