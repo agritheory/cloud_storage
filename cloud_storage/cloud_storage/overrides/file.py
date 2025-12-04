@@ -51,7 +51,7 @@ class CloudStorageFile(File):
 
 	def validate(self) -> None:
 		"""
-		HASH: c6deff534edaf22506142150303f96e4518f23c9
+		HASH: efa6e6b66188c0131d1e374ca0904cc75f9e1119
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
@@ -548,6 +548,26 @@ def upload_file(file: File) -> File:
 
 
 def get_file_path(file: File, folder: str | None = None) -> str:
+	custom_storage_path_generator = frappe.get_hooks("cloud_storage_path_generator")
+
+	if custom_storage_path_generator and len(custom_storage_path_generator) > 0:
+		try:
+			generator_fn = frappe.get_attr(custom_storage_path_generator[0])
+			return generator_fn(file, folder)
+		except Exception as e:
+			frappe.log_error(f"Custom path generator failed: {str(e)}", "Cloud Storage Path Error")
+
+	config = frappe.conf.get("cloud_storage_settings", {})
+	if config.get("use_legacy_paths", True):
+		return _legacy_get_file_path(file, folder)
+
+	if folder:
+		return f"{folder}/{file.file_name}"
+
+	return file.file_name
+
+
+def _legacy_get_file_path(file: File, folder: str | None = None) -> str:
 	parent_doctype = file.attached_to_doctype or "No Doctype"
 
 	attached_to_name = ""

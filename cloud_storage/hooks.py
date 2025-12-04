@@ -193,6 +193,7 @@ override_whitelisted_methods = {
 # --------------------------------
 write_file = "cloud_storage.cloud_storage.overrides.file.write_file"
 delete_file_data_content = "cloud_storage.cloud_storage.overrides.file.delete_file"
+# cloud_storage_path_generator = "my_custom_app.utils.custom_get_file_path"
 
 
 # After Migrate
