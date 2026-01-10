@@ -4,7 +4,8 @@
 	"dependencies": {
 		"docx-preview": "^0.3.0",
 		"jszip": "^3.10.1",
-		"madr": "^3.0.0"
+		"madr": "^3.0.0",
+		"vue": "^3.3.4"
 	},
 	"release": {
 		"branches": [
