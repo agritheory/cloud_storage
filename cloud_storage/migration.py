@@ -14,6 +14,8 @@ from cloud_storage.cloud_storage.overrides.file import (
 	get_file_path,
 	validate_config,
 	write_file,
+	get_cloud_storage_config,
+	FILE_URL,
 )
 
 
@@ -41,7 +43,7 @@ def migrate_files(
 	"""
 	validate_config()
 
-	config = frappe.conf.get("cloud_storage_settings")
+	config = get_cloud_storage_config()
 	if config.get("use_local"):
 		frappe.throw(
 			"Cloud Storage is not enabled. Please set 'use_local' to 0 in 'cloud_storage_settings'."
@@ -109,6 +111,11 @@ def migrate_files(
 		for file_data in batch:
 			try:
 				file_doc = frappe.get_doc("File", file_data.name)
+				if not file_doc.file_name:
+					print(f"⚠️  SKIP: {file_doc.name} - Missing file_name")
+					stats["skipped"] += 1
+					continue
+
 				if not file_doc.is_private:
 					file_path = frappe.get_site_path("public", file_doc.file_url.lstrip("/"))
 				else:
@@ -137,12 +144,38 @@ def migrate_files(
 				print(f"   Local path: {file_doc.file_url}")
 
 				if not dry_run:
+					client = get_cloud_storage_client()
+					config = get_cloud_storage_config()
+					expected_s3_key = get_file_path(file_doc, config.get("folder"))
+
+					try:
+						client.head_object(Bucket=client.bucket, Key=expected_s3_key)
+						# If we reach here, file exists in S3. Sync DB and Skip Upload.
+						file_doc.db_set("s3_key", expected_s3_key)
+						file_doc.db_set("file_url", FILE_URL.format(path=expected_s3_key))
+						print(f"   ✅ Synced Record (Found in Cloud): {expected_s3_key}")
+						stats["migrated"] += 1
+						
+						if remove_local and os.path.exists(file_path):
+							os.remove(file_path)
+							print("   🗑️  Deleted local file (Synced)")
+						
+						continue
+					except ClientError:
+						# File not found in S3, proceed with upload
+						pass
+
+				if not dry_run:
 					with open(file_path, "rb") as f:
 						file_content = f.read()
 
 					file_doc.content = file_content
 					content_type, _ = mimetypes.guess_type(file_doc.file_name)
 					file_doc.content_type = content_type or "application/octet-stream"
+					
+					file_doc.flags.ignore_links = True
+					file_doc.flags.ignore_permissions = True
+					file_doc.flags.ignore_validate = True
 
 					new_file = write_file(file_doc)
 					new_file.reload()
@@ -164,7 +197,9 @@ def migrate_files(
 				print()
 
 			except Exception as e:
+				import traceback
 				print(f"❌ FAILED: {file_data.name} - {str(e)}")
+				traceback.print_exc()
 				frappe.log_error(
 					title=f"Cloud Storage Migration Failed: {file_data.name}", message=frappe.get_traceback()
 				)
@@ -194,7 +229,7 @@ def migrate_files(
 def migrate_paths(dry_run=False, limit=None, batch_size=100):
 	"""Migrate files from legacy paths to new path strategy."""
 	client = get_cloud_storage_client()
-	config = frappe.conf.get("cloud_storage_settings", {})
+	config = get_cloud_storage_config()
 
 	if config.get("use_legacy_paths", True):
 		print("⚠️  Legacy paths are still enabled in cloud_storage_settings.")
