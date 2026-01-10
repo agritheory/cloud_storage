@@ -56,9 +56,11 @@ class CloudStorageFile(File):
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
 		"""
-		self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
+		
+		self.associate_files()
+		
 		if not self.is_remote_file:
 			self.custom_validate()
 		else:
@@ -211,7 +213,13 @@ class CloudStorageFile(File):
 				"file_association",
 				add_child_file_association(attached_to_doctype, attached_to_name),
 			)
-			existing_file.save()
+			existing_file.flags.ignore_file_validate = True
+			
+			if self.flags.ignore_links: existing_file.flags.ignore_links = True
+			if self.flags.ignore_permissions: existing_file.flags.ignore_permissions = True
+			if self.flags.ignore_validate: existing_file.flags.ignore_validate = True
+			
+			existing_file.save(ignore_permissions=True)
 		else:
 			if self.file_association:
 				already_linked = any(
@@ -395,10 +403,15 @@ def has_permission(doc, ptype: str | None = None, user: str | None = None) -> bo
 	if doc.owner == user:
 		has_access = True
 	elif doc.attached_to_doctype and doc.attached_to_name:  # type: ignore
-		reference_doc = frappe.get_doc(doc.attached_to_doctype, doc.attached_to_name)  # type: ignore
-		has_access = reference_doc.has_permission()
-		if not has_access:
-			has_access = has_user_permission(doc, user)
+		try:
+			reference_doc = frappe.get_doc(doc.attached_to_doctype, doc.attached_to_name)  # type: ignore
+			has_access = reference_doc.has_permission()
+			if not has_access:
+				has_access = has_user_permission(doc, user)
+		except frappe.DoesNotExistError:
+			# If attached document doesn't exist, check permission on the file itself
+			has_access = bool(frappe.has_permission(doc.doctype, ptype, user=user))
+
 	# elif True:
 	# Check "shared with"  including parent 'folder' to allow access
 	# ...
@@ -439,11 +452,31 @@ def strip_special_chars(file_name: str) -> str:
 	return regex.sub("", file_name)
 
 
+def get_cloud_storage_config() -> dict:
+	config = frappe.conf.get("cloud_storage_settings", {})
+	
+	# If nested config is found and seems populated with at least access_key, use it.
+	if config and config.get("access_key"):
+		return config
+
+	# Otherwise, build from top-level standard keys
+	return {
+		"access_key": frappe.conf.get("s3_access_key"),
+		"secret": frappe.conf.get("s3_secret_key"),
+		"bucket": frappe.conf.get("s3_bucket"),
+		"region": frappe.conf.get("region"),
+		"endpoint_url": frappe.conf.get("endpoint_url"),
+		"folder": frappe.conf.get("s3_folder"),
+		"use_local": frappe.conf.get("use_local"),
+		"use_legacy_paths": frappe.conf.get("use_legacy_paths", True) 
+	}
+
+
 @frappe.whitelist()
 def get_cloud_storage_client():
 	validate_config()
 
-	config: dict = frappe.conf.cloud_storage_settings
+	config: dict = get_cloud_storage_config()
 	session = Session(
 		aws_access_key_id=config.get("access_key"),
 		aws_secret_access_key=config.get("secret"),
@@ -462,7 +495,7 @@ def get_cloud_storage_client():
 
 
 def validate_config() -> None:
-	config: dict = frappe.conf.cloud_storage_settings
+	config: dict = get_cloud_storage_config()
 
 	if not config:
 		frappe.throw(
@@ -560,14 +593,23 @@ def get_file_path(file: File, folder: str | None = None) -> str:
 		except Exception as e:
 			frappe.log_error(f"Custom path generator failed: {str(e)}", "Cloud Storage Path Error")
 
-	config = frappe.conf.get("cloud_storage_settings", {})
+	config = get_cloud_storage_config()
 	if config.get("use_legacy_paths", True):
-		return _legacy_get_file_path(file, folder)
+		# Verify if this is a fresh install or if we want to enforce new paths even with legacy flag
+		# For Hygient/Zerodiscount: We enforce strict site segregation.
+		pass
 
+	# Standard Logic
+	path = file.file_name
 	if folder:
-		return f"{folder}/{file.file_name}"
+		path = f"{folder}/{file.file_name}"
 
-	return file.file_name
+	# Enforce Site Segregation
+	# e.g. "site1.local/folder/filename.jpg"
+	if hasattr(frappe.local, "site") and frappe.local.site:
+		return f"{frappe.local.site}/{path}"
+
+	return path
 
 
 def _legacy_get_file_path(file: File, folder: str | None = None) -> str:
@@ -599,9 +641,8 @@ def get_file_content_hash(content, content_type):
 
 @frappe.whitelist()
 def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
-	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
-		"use_local", False
-	):
+	config = get_cloud_storage_config()
+	if not config or config.get("use_local", False):
 		file.save_file_on_filesystem()
 		return file
 
@@ -618,8 +659,14 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 	if existing_file_hashes:
 		file_doc: File = frappe.get_doc("File", existing_file_hashes[0])
+		
+		# Propagate flags
+		if file.flags.ignore_links: file_doc.flags.ignore_links = True
+		if file.flags.ignore_permissions: file_doc.flags.ignore_permissions = True
+		if file.flags.ignore_validate: file_doc.flags.ignore_validate = True
+		
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
-		file_doc.save()
+		file_doc.save(ignore_permissions=True)
 		return file_doc
 
 	# if a filename-conflict is found, update the existing document with a new version instead
@@ -636,6 +683,12 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 				"content_type": file.content_type,
 			}
 		)
+		
+		# Propagate flags
+		if file.flags.ignore_links: file_doc.flags.ignore_links = True
+		if file.flags.ignore_permissions: file_doc.flags.ignore_permissions = True
+		if file.flags.ignore_validate: file_doc.flags.ignore_validate = True
+
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
 		file = file_doc
 
@@ -649,9 +702,8 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 @frappe.whitelist()
 def delete_file(file: File, **kwargs) -> File:
-	if not frappe.conf.cloud_storage_settings or frappe.conf.cloud_storage_settings.get(
-		"use_local", False
-	):
+	config = get_cloud_storage_config()
+	if not config or config.get("use_local", False):
 		file.delete_file_from_filesystem()
 		return file
 
