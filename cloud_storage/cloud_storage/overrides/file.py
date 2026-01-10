@@ -641,12 +641,19 @@ def get_file_content_hash(content, content_type):
 
 @frappe.whitelist()
 def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
+	print(f"DEBUG_WRITE: Processing {file.file_name} ({file.name})")
 	config = get_cloud_storage_config()
+	if not config:
+		print("DEBUG_WRITE: Config empty")
+	elif config.get("use_local", False):
+		print("DEBUG_WRITE: use_local is True")
+	
 	if not config or config.get("use_local", False):
 		file.save_file_on_filesystem()
 		return file
 
 	if file.attached_to_doctype == "Data Import":
+		print("DEBUG_WRITE: Data Import skip")
 		file.save_file_on_filesystem()
 		return file
 
@@ -658,6 +665,7 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 	)
 
 	if existing_file_hashes:
+		print(f"DEBUG_WRITE: Duplicate Hash found ({existing_file_hashes[0]}). Using existing.")
 		file_doc: File = frappe.get_doc("File", existing_file_hashes[0])
 		
 		# Propagate flags
@@ -675,6 +683,7 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 	)
 
 	if existing_file_names:
+		print(f"DEBUG_WRITE: Duplicate Name found ({existing_file_names[0]}). Updating existing.")
 		file_doc = frappe.get_doc("File", existing_file_names[0])
 		file_doc.update(
 			{
@@ -697,6 +706,7 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 	file.file_name = strip_special_chars(file.file_name)
 	file.flags.cloud_storage = True
+	print("DEBUG_WRITE: Proceeding to upload_file")
 	return upload_file(file)
 
 
