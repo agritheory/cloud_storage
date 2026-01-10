@@ -1,22 +1,23 @@
 {
 	"name": "@agritheory/cloud_storage",
 	"type": "module",
-	"docx-preview": "^0.3.0",
-	"jszip": "^3.10.1",
-	"madr": "^3.0.0",
-	"vue": "^3.3.4"
-},
-"release": {
-	"branches": [
-		"version-15"
-	]
-},
-"repository": {
-	"type": "git",
-	"url": "https://github.com/agritheory/cloud_storage.git"
-},
-"publishConfig": {
-	"access": "restricted"
-},
-"private": true
+	"dependencies": {
+		"docx-preview": "^0.3.0",
+		"jszip": "^3.10.1",
+		"madr": "^3.0.0",
+		"vue": "^3.3.4"
+	},
+	"release": {
+		"branches": [
+			"version-15"
+		]
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/agritheory/cloud_storage.git"
+	},
+	"publishConfig": {
+		"access": "restricted"
+	},
+	"private": true
 }
