@@ -660,7 +660,11 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 	# if a hash-conflict is found, update the existing document with a new file association
 	existing_file_hashes = frappe.get_all(
 		"File",
-		filters={"name": ["!=", file.name], "content_hash": file.content_hash},
+		filters={
+			"name": ["!=", file.name],
+			"content_hash": file.content_hash,
+			"s3_key": ["is", "set"],
+		},
 		pluck="name",
 	)
 
