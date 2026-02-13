@@ -346,6 +346,54 @@ class CloudStorageFile(File):
 		return file_path
 
 	@frappe.whitelist()
+	def get_replace_upload_url(self):
+		"""Generate a presigned PUT URL to replace this file's content in cloud storage."""
+		if self.is_folder:
+			frappe.throw(_("Cannot replace a folder"))
+		if not self.s3_key:
+			frappe.throw(_("File does not have a cloud storage key"))
+
+		client = get_cloud_storage_client()
+		content_type = self.content_type or guess_type(self.file_name)[0] or "application/octet-stream"
+		return client.generate_presigned_url(
+			ClientMethod="put_object",
+			Params={
+				"Bucket": client.bucket,
+				"Key": self.s3_key,
+				"ContentType": content_type,
+			},
+			ExpiresIn=3600,
+		)
+
+	@frappe.whitelist()
+	def confirm_file_replaced(self, file_size=None, content_type=None):
+		"""Update file metadata after a direct upload replacement."""
+		if self.is_folder:
+			frappe.throw(_("Cannot replace a folder"))
+		if not self.s3_key:
+			frappe.throw(_("File does not have a cloud storage key"))
+
+		# Fetch updated metadata from cloud storage
+		client = get_cloud_storage_client()
+		try:
+			obj = client.head_object(Bucket=client.bucket, Key=self.s3_key)
+			self.file_size = obj.get("ContentLength", file_size or 0)
+			if obj.get("ContentType"):
+				self.content_type = obj["ContentType"]
+			version_id = obj.get("VersionId")
+			if version_id:
+				self.add_file_version(version_id)
+		except Exception:
+			if file_size:
+				self.file_size = file_size
+			if content_type:
+				self.content_type = content_type
+
+		self.flags.cloud_storage = True
+		self.save()
+		return True
+
+	@frappe.whitelist()
 	def get_pdf_preview(self):
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))

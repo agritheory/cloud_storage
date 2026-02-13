@@ -9,6 +9,11 @@ frappe.ui.form.on('File', {
 			if (frm.doc.sharing_link) {
 				frm.add_custom_button(__('Reset Sharing Link', 'Share'), () => get_sharing_link(frm, true))
 			}
+
+			// Replace File button for cloud storage files
+			if (frm.doc.s3_key) {
+				frm.add_custom_button(__('Replace File'), () => replace_file(frm))
+			}
 		}
 
 		let file_string = frm.doc.file_type || frm.doc.file_name
@@ -120,4 +125,84 @@ function get_sharing_link(frm, reset) {
 		.then(r => {
 			frappe.msgprint(r, __('Sharing Link'))
 		})
+}
+
+function replace_file(frm) {
+	const input = document.createElement('input')
+	input.type = 'file'
+
+	input.onchange = function () {
+		if (!input.files.length) return
+
+		const file = input.files[0]
+		frappe.dom.freeze(__('Getting upload URL...'))
+
+		frappe.call({
+			method: 'get_replace_upload_url',
+			doc: frm.doc,
+			callback: function (r) {
+				if (r.message) {
+					const uploadUrl = r.message
+					const xhr = new XMLHttpRequest()
+
+					xhr.upload.addEventListener('progress', function (e) {
+						if (e.lengthComputable) {
+							const percentComplete = Math.round((e.loaded / e.total) * 100)
+							frappe.dom.unfreeze()
+							frappe.show_progress(__('Uploading...'), percentComplete, 100, __('Please wait'))
+						}
+					})
+
+					xhr.onload = function () {
+						frappe.hide_progress()
+						frappe.dom.freeze(__('Processing...'))
+
+						if (xhr.status === 200) {
+							frappe.call({
+								method: 'confirm_file_replaced',
+								doc: frm.doc,
+								args: {
+									file_size: file.size,
+									content_type: file.type || null,
+								},
+								callback: function (r) {
+									frappe.dom.unfreeze()
+									if (r.message) {
+										frappe.show_alert({
+											message: __('File replaced successfully'),
+											indicator: 'green',
+										})
+										frm.reload_doc()
+									}
+								},
+								error: function () {
+									frappe.dom.unfreeze()
+									frappe.msgprint(__('Error processing uploaded file'))
+								},
+							})
+						} else {
+							frappe.dom.unfreeze()
+							frappe.msgprint(__('Upload failed. Please try again.'))
+						}
+					}
+
+					xhr.onerror = function () {
+						frappe.hide_progress()
+						frappe.dom.unfreeze()
+						frappe.msgprint(__('Upload failed. Please try again.'))
+					}
+
+					xhr.open('PUT', uploadUrl)
+					xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+					xhr.send(file)
+				}
+			},
+			error: function () {
+				frappe.dom.unfreeze()
+				frappe.msgprint(__('Error getting upload URL'))
+			},
+		})
+	}
+
+	input.click()
 }
