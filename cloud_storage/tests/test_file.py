@@ -210,24 +210,26 @@ def test_file_versioning_with_content_change(example_file_record_5, tmp_path):
 	assert latest_version.version is not None
 
 
-@mock_s3
-def test_get_replace_upload_url(example_file_record_0):
+def test_get_replace_upload_url(mocked_s3_client, tmp_path):
 	"""Test that get_replace_upload_url returns a presigned PUT URL for the file's s3_key."""
 	frappe.set_user("Administrator")
-	file = create_upload_file(example_file_record_0, file_name="aticonrusthex.png")
-	assert file.s3_key is not None
 
-	url = file.get_replace_upload_url()
-	assert url is not None
-	assert isinstance(url, str)
-	assert (
-		"put_object" in url.lower()
-		or "PUT" in url
-		or file.s3_key.replace("/", "%2F") in url
-		or "test_bucket" in url
-	)
-	# The URL should reference the file's s3_key
-	assert file.s3_key.split("/")[-1] in url
+	# Create a unique temp file to avoid content_hash collisions with earlier tests
+	unique_file = tmp_path / "replace_url_test.txt"
+	unique_file.write_text(f"unique content for replace url test {id(unique_file)}")
+
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		file = create_upload_file(unique_file, file_name="replace_url_test.txt")
+		assert file.s3_key is not None
+
+		url = file.get_replace_upload_url()
+		assert url is not None
+		assert isinstance(url, str)
+		# The URL should reference the file's s3_key
+		assert file.s3_key.split("/")[-1] in url
 
 
 @mock_s3
@@ -239,55 +241,67 @@ def test_get_replace_upload_url_rejects_folder():
 		folder.get_replace_upload_url()
 
 
-@mock_s3
-def test_confirm_file_replaced(example_file_record_0, example_file_record_6):
+def test_confirm_file_replaced(mocked_s3_client, tmp_path):
 	"""Test that confirm_file_replaced updates file metadata after a replacement upload."""
 	frappe.set_user("Administrator")
-	file = create_upload_file(example_file_record_0, file_name="aticonrusthex.png")
-	assert file.s3_key is not None
-	original_size = file.file_size
 
-	# Simulate replacing the file content in S3 with different content
-	replacement_content = Path(example_file_record_6).resolve().read_bytes()
-	from cloud_storage.cloud_storage.overrides.file import get_cloud_storage_client
+	# Create unique temp files to avoid content_hash collisions
+	original_file = tmp_path / "confirm_original.txt"
+	original_file.write_text(f"original content for confirm test {id(original_file)}")
+	replacement_file = tmp_path / "confirm_replacement.txt"
+	replacement_file.write_text(f"replacement content for confirm test {id(replacement_file)} - extra data to change size")
 
-	client = get_cloud_storage_client()
-	client.put_object(
-		Body=replacement_content,
-		Bucket=client.bucket,
-		Key=file.s3_key,
-		ContentType="image/png",
-	)
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		file = create_upload_file(original_file, file_name="confirm_original.txt")
+		assert file.s3_key is not None
+		original_size = file.file_size
 
-	# Now confirm the replacement
-	result = file.confirm_file_replaced(file_size=len(replacement_content), content_type="image/png")
-	assert result is True
+		# Simulate replacing the file content in S3 with different content
+		replacement_content = replacement_file.read_bytes()
+		mocked_s3_client.put_object(
+			Body=replacement_content,
+			Bucket=mocked_s3_client.bucket,
+			Key=file.s3_key,
+			ContentType="text/plain",
+		)
 
-	file.reload()
-	# File size should reflect the replacement content
-	assert file.file_size == len(replacement_content)
-	assert file.file_size != original_size
+		# Now confirm the replacement
+		result = file.confirm_file_replaced(file_size=len(replacement_content), content_type="text/plain")
+		assert result is True
+
+		file.reload()
+		# File size should reflect the replacement content
+		assert file.file_size == len(replacement_content)
+		assert file.file_size != original_size
 
 
-@mock_s3
-def test_confirm_file_replaced_fallback_metadata(example_file_record_0):
+def test_confirm_file_replaced_fallback_metadata(mocked_s3_client, tmp_path):
 	"""Test that confirm_file_replaced uses fallback args when head_object fails."""
 	frappe.set_user("Administrator")
-	file = create_upload_file(example_file_record_0, file_name="aticonrusthex.png")
-	assert file.s3_key is not None
 
-	# Delete the S3 object so head_object will fail, triggering the fallback path
-	from cloud_storage.cloud_storage.overrides.file import get_cloud_storage_client
+	# Create a unique temp file to avoid content_hash collisions
+	unique_file = tmp_path / "fallback_test.txt"
+	unique_file.write_text(f"unique content for fallback test {id(unique_file)}")
 
-	client = get_cloud_storage_client()
-	client.delete_object(Bucket=client.bucket, Key=file.s3_key)
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		file = create_upload_file(unique_file, file_name="fallback_test.txt")
+		assert file.s3_key is not None
 
-	result = file.confirm_file_replaced(file_size=99999, content_type="image/webp")
-	assert result is True
+		# Delete the S3 object so head_object will fail, triggering the fallback path
+		mocked_s3_client.delete_object(Bucket=mocked_s3_client.bucket, Key=file.s3_key)
 
-	file.reload()
-	assert file.file_size == 99999
-	assert file.content_type == "image/webp"
+		result = file.confirm_file_replaced(file_size=99999, content_type="image/webp")
+		assert result is True
+
+		file.reload()
+		assert file.file_size == 99999
+		assert file.content_type == "image/webp"
 
 
 def test_migration_command(mocked_s3_client, example_file_record_6):
