@@ -131,77 +131,55 @@ function replace_file(frm) {
 	const input = document.createElement('input')
 	input.type = 'file'
 
-	input.onchange = function () {
+	input.onchange = async function () {
 		if (!input.files.length) return
 
 		const file = input.files[0]
 		frappe.dom.freeze(__('Getting upload URL...'))
 
-		frappe.call({
-			method: 'get_replace_upload_url',
-			doc: frm.doc,
-			callback: function (r) {
-				if (r.message) {
-					const uploadUrl = r.message
-					const xhr = new XMLHttpRequest()
+		try {
+			const r = await frappe.xcall('get_replace_upload_url', { doc: frm.doc })
+			if (!r) return frappe.dom.unfreeze()
 
-					xhr.upload.addEventListener('progress', function (e) {
-						if (e.lengthComputable) {
-							const percentComplete = Math.round((e.loaded / e.total) * 100)
-							frappe.dom.unfreeze()
-							frappe.show_progress(__('Uploading...'), percentComplete, 100, __('Please wait'))
-						}
-					})
+			const uploadUrl = r
+			frappe.dom.unfreeze()
+			frappe.show_progress(__('Uploading...'), 0, 100, __('Please wait'))
 
-					xhr.onload = function () {
-						frappe.hide_progress()
-						frappe.dom.freeze(__('Processing...'))
+			const uploadResponse = await fetch(uploadUrl, {
+				method: 'PUT',
+				headers: { 'Content-Type': file.type || 'application/octet-stream' },
+				body: file,
+			})
 
-						if (xhr.status === 200) {
-							frappe.call({
-								method: 'confirm_file_replaced',
-								doc: frm.doc,
-								args: {
-									file_size: file.size,
-									content_type: file.type || null,
-								},
-								callback: function (r) {
-									frappe.dom.unfreeze()
-									if (r.message) {
-										frappe.show_alert({
-											message: __('File replaced successfully'),
-											indicator: 'green',
-										})
-										frm.reload_doc()
-									}
-								},
-								error: function () {
-									frappe.dom.unfreeze()
-									frappe.msgprint(__('Error processing uploaded file'))
-								},
-							})
-						} else {
-							frappe.dom.unfreeze()
-							frappe.msgprint(__('Upload failed. Please try again.'))
-						}
-					}
+			frappe.hide_progress()
 
-					xhr.onerror = function () {
-						frappe.hide_progress()
-						frappe.dom.unfreeze()
-						frappe.msgprint(__('Upload failed. Please try again.'))
-					}
+			if (!uploadResponse.ok) {
+				frappe.msgprint(__('Upload failed. Please try again.'))
+				return
+			}
 
-					xhr.open('PUT', uploadUrl)
-					xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
-					xhr.send(file)
-				}
-			},
-			error: function () {
-				frappe.dom.unfreeze()
-				frappe.msgprint(__('Error getting upload URL'))
-			},
-		})
+			frappe.dom.freeze(__('Processing...'))
+
+			const confirmResult = await frappe.xcall('confirm_file_replaced', {
+				doc: frm.doc,
+				file_size: file.size,
+				content_type: file.type || null,
+			})
+
+			frappe.dom.unfreeze()
+
+			if (confirmResult) {
+				frappe.show_alert({
+					message: __('File replaced successfully'),
+					indicator: 'green',
+				})
+				frm.reload_doc()
+			}
+		} catch (e) {
+			frappe.hide_progress()
+			frappe.dom.unfreeze()
+			frappe.msgprint(__('Upload failed. Please try again.'))
+		}
 	}
 
 	input.click()
