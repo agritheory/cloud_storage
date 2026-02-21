@@ -1,4 +1,12 @@
+<!-- Copyright (c) 2026, AgriTheory and contributors
+For license information, please see license.txt-->
+
 # Cloud Storage Migration
+
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
 
 This guide covers migrating existing local files to cloud storage and updating file paths to the new path strategy.
 

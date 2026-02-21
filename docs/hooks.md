@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 # Cloud Storage Hooks
 
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
+
 ## Path Generator Hook
 
 The Cloud Storage app provides a hook to customize how file paths are generated in your S3-compatible storage bucket.

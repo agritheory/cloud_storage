@@ -4,38 +4,69 @@ fail_fast: false
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.3.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
         files: 'cloud_storage.*'
         exclude: '.*json$|.*txt$|.*csv|.*md|.*svg'
       - id: check-yaml
       - id: no-commit-to-branch
-        args: ['--branch', 'develop']
+        args: ['--branch', 'version-15', '--branch', 'version-16']
       - id: check-merge-conflict
       - id: check-ast
       - id: check-json
       - id: check-toml
-      - id: check-yaml
       - id: debug-statements
 
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        args: ["--ignore-words-list", "notin"]
+        exclude: 'yarn.lock|poetry.lock'
+        additional_dependencies:
+          - tomli
+
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.15.2
+    rev: v3.19.1
     hooks:
       - id: pyupgrade
         args: ['--py310-plus']
 
-  - repo: https://github.com/frappe/black
+  - repo: https://github.com/agritheory/black
     rev: 951ccf4d5bb0d692b457a5ebc4215d755618eb68
     hooks:
       - id: black
 
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.2.0
+    hooks:
+      - id: flake8
+        additional_dependencies: ['flake8-bugbear']
+
+  - repo: https://github.com/agritheory/test_utils
+    rev: v1.15.3
+    hooks:
+      - id: update_pre_commit_config
+      - id: validate_frappe_project
+      - id: validate_copyright
+        files: '\.(js|ts|py|md)$'
+        args: ['--app', 'cloud_storage']
+      - id: bylines
+        exclude: 'README.md'
+      - id: clean_customized_doctypes
+        args: ['--app', 'cloud_storage']
+      - id: validate_customizations
+      - id: patch_linters
+        args: ['--app', 'cloud_storage']
+      - id: track_overrides
+        args: ['--app', 'cloud_storage', '--base-branch', 'version-15']
+
   - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v2.7.1
+    rev: v3.1.0
     hooks:
       - id: prettier
         types_or: [javascript, vue, scss]
-        # Ignore any files that might contain jinja / bundles
         exclude: |
           (?x)^(
             .*node_modules.*|
@@ -43,51 +74,6 @@ repos:
             cloud_storage/public/js/lib/.*|
             cloud_storage/templates/includes/.*
           )$
-
-  - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v8.44.0
-    hooks:
-      - id: eslint
-        types_or: [javascript]
-        args: ['--quiet']
-        # Ignore any files that might contain jinja / bundles
-        exclude: |
-          (?x)^(
-              .*node_modules.*|
-              cloud_storage/public/dist/.*|
-              cloud_storage/public/js/lib/.*|
-              cloud_storage/templates/includes/.*
-          )$
-
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-
-  - repo: https://github.com/PyCQA/flake8
-    rev: 6.0.0
-    hooks:
-      - id: flake8
-        additional_dependencies: ['flake8-bugbear']
-
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.3.0
-    hooks:
-      - id: codespell
-        additional_dependencies:
-          - tomli
-
-  - repo: https://github.com/agritheory/test_utils
-    rev: v1.3.2
-    hooks:
-      - id: update_pre_commit_config
-      - id: validate_copyright
-        files: '\.(js|ts|py|md)$'
-        args: ['--app', 'cloud_storage']
-      - id: clean_customized_doctypes
-        args: ['--app', 'cloud_storage']
-      - id: validate_customizations
-      # - id: validate_javascript_dependencies
 
 ci:
   autoupdate_schedule: weekly

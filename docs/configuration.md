@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 # Cloud Storage Site Configuration
 
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
+
 The following documentation shows how to set up some common cloud storage providers:
 
 - [Amazon Web Services S3](aws-s3.md)

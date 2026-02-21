@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 ---
 # These are optional elements. Feel free to remove any of them.
+
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
 status: proposed | rejected | accepted | deprecated | … | superseded by [ADR-0005](0005-example.md)
 date: YYYY-MM-DD when the decision was last updated
 deciders: list everyone involved in the decision

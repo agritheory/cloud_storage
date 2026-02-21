@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 # Use Markdown Any Decision Records
 
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
+
 ## Context and Problem Statement
 
 We want to record any decisions made in this project independent whether decisions concern the architecture ("architectural decision record"), the code, or other fields.

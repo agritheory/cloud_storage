@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 # Cloud Storage Developer Setup
 
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
+
 Before you begin, make sure that your Python version is:
 - Latest 3.10 for Frappe's version 14.
 

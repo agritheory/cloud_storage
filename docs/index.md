@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 # Cloud Storage Documentation
 
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
+
 Cloud Storage extends the file utilities in a Frappe App to integrate with third-party cloud storage applications. Once configured, users can upload, download, or remove files to a cloud storage application via the Frappe App's interface. Depending on user permissions, they may also generate or reset sharing links to files.
 
 Cloud Storage can be configured to work with a variety of cloud storage providers, including Amazon Web Services S3, DigitalOcean Spaces, and Backblaze B2.

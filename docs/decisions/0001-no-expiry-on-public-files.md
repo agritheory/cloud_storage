@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 ---
 # These are optional elements. Feel free to remove any of them.
+
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
 status: proposed
 date: 2023-02-03
 deciders: tyler@agritheory.com

@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 # [Backblaze B2](https://www.backblaze.com/b2/cloud-storage.html)
 
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
+
 ## Credentials
 
 In order to generate access keys for Backblaze B2 with the following steps:
