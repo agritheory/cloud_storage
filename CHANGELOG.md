@@ -3,11 +3,6 @@ For license information, please see license.txt-->
 
 # CHANGELOG
 
-<div class="byline">
-  semantic-release 2025-12-05
-</div>
-
-
 ## v15.7.2 (2024-08-20)
 
 ### Fix
