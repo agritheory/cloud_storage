@@ -7,13 +7,7 @@ requires-python = ">=3.10"
 authors = [
     { name = "AgriTheory", email = "support@agritheory.dev" }
 ]
-
-[tool.poetry]
-name = "cloud_storage"
-version = "15.9.1"
-description = "Frappe App for integrating with cloud storage applications"
-authors = ["AgriTheory <support@agritheory.dev>"]
-readme = "README.md"
+dynamic = ["dependencies"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -29,6 +23,9 @@ pytest-cov = "^5.0.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.bench.frappe-dependencies]
+frappe = ">=15.0.0,<16.0.0"
 
 [tool.codespell]
 skip = "CHANGELOG.md"
@@ -49,7 +46,7 @@ ensure_newline_before_comments = true
 indent = "\t"
 
 [tool.semantic_release]
-version_toml = ["pyproject.toml:tool.poetry.version"]
+version_toml = ["pyproject.toml:project.version"]
 version_variable = [
     "cloud_storage/__init__.py:__version__"
 ]

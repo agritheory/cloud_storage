@@ -22,7 +22,6 @@ from frappe import DoesNotExistError, _
 from frappe.core.doctype.file.file import File, get_files_path
 from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
 from frappe.model.rename_doc import rename_doc
-from frappe.permissions import has_user_permission
 from frappe.utils import get_datetime, get_url
 from frappe.utils.image import optimize_image, strip_exif_data
 from magic import from_buffer
@@ -46,12 +45,9 @@ class CloudStorageFile(File):
 			return self.file_url.startswith(URL_PREFIXES)  # type: ignore
 		return not self.content
 
-	def has_permission(self, ptype: str | None = None, user: str | None = None) -> bool:
-		return has_permission(self, ptype, user)
-
 	def validate(self) -> None:
 		"""
-		HASH: efa6e6b66188c0131d1e374ca0904cc75f9e1119
+		HASH: 69a495579a729909f4df7a45855165eee4a208f4
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
@@ -380,32 +376,6 @@ class CloudStorageFile(File):
 					pdf_bytes = f.read()
 					encoded = base64.b64encode(pdf_bytes).decode("utf-8")
 					return encoded
-
-
-def has_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:
-	"""
-	HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
-	REPO: https://github.com/frappe/frappe
-	PATH: frappe/core/doctype/file/file.py
-	METHOD: has_permission
-	"""
-	has_access = False
-	user = frappe.session.user if not user else user
-	# check if public
-	if doc.owner == user:
-		has_access = True
-	elif doc.attached_to_doctype and doc.attached_to_name:  # type: ignore
-		reference_doc = frappe.get_doc(doc.attached_to_doctype, doc.attached_to_name)  # type: ignore
-		has_access = reference_doc.has_permission()
-		if not has_access:
-			has_access = has_user_permission(doc, user)
-	# elif True:
-	# Check "shared with"  including parent 'folder' to allow access
-	# ...
-	else:
-		has_access = bool(frappe.has_permission(doc.doctype, ptype, user=user))
-
-	return has_access
 
 
 def is_safe_path(path: str) -> bool:

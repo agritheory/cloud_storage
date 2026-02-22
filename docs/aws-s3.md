@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 # [Amazon Web Services S3 Setup](https://aws.amazon.com/s3/)
 
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
+
 ## Regions
 
 The following documentation shows the available region names for AWS:

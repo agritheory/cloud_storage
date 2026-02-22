@@ -3,6 +3,11 @@ For license information, please see license.txt-->
 
 # File Versioning and Association Logic
 
+<div class="byline">
+  semantic-release 2025-12-05
+</div>
+
+
 ## S3/Cloud Storage Versioning
 
 Versioning must be enabled at the bucket level for S3/compatible storage.
