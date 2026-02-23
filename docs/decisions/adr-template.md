@@ -5,7 +5,7 @@ For license information, please see license.txt-->
 # These are optional elements. Feel free to remove any of them.
 
 <div class="byline">
-  semantic-release 2025-12-05
+  Tyler Matteson and semantic-release 2026-02-21
 </div>
 
 status: proposed | rejected | accepted | deprecated | … | superseded by [ADR-0005](0005-example.md)
