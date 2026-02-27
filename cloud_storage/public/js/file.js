@@ -138,10 +138,10 @@ function replace_file(frm) {
 		frappe.dom.freeze(__('Getting upload URL...'))
 
 		try {
-			const r = await frappe.xcall('get_replace_upload_url', { doc: frm.doc })
-			if (!r) return frappe.dom.unfreeze()
+			const r = await frm.call('get_replace_upload_url', { doc: frm.doc })
+			if (!r.message) return frappe.dom.unfreeze()
 
-			const uploadUrl = r
+			const uploadUrl = r.message
 			frappe.dom.unfreeze()
 			frappe.show_progress(__('Uploading...'), 0, 100, __('Please wait'))
 
@@ -160,7 +160,7 @@ function replace_file(frm) {
 
 			frappe.dom.freeze(__('Processing...'))
 
-			const confirmResult = await frappe.xcall('confirm_file_replaced', {
+			const confirmResult = await frm.call('confirm_file_replaced', {
 				doc: frm.doc,
 				file_size: file.size,
 				content_type: file.type || null,
