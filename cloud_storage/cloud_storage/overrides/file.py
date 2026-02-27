@@ -8,7 +8,7 @@ import re
 import subprocess
 import types
 import uuid
-from mimetypes import guess_type
+from mimetypes import guess_extension, guess_type
 from pathlib import Path
 from urllib.parse import quote, unquote
 from urllib.request import urlopen
@@ -354,7 +354,7 @@ class CloudStorageFile(File):
 			frappe.throw(_("File does not have a cloud storage key"))
 
 		client = get_cloud_storage_client()
-		content_type = self.content_type or guess_type(self.file_name)[0] or "application/octet-stream"
+		content_type = guess_type(self.file_name)[0] or "application/octet-stream"
 		return client.generate_presigned_url(
 			ClientMethod="put_object",
 			Params={
@@ -379,15 +379,18 @@ class CloudStorageFile(File):
 			obj = client.head_object(Bucket=client.bucket, Key=self.s3_key)
 			self.file_size = obj.get("ContentLength", file_size or 0)
 			if obj.get("ContentType"):
-				self.content_type = obj["ContentType"]
+				content_type = obj["ContentType"]
 			version_id = obj.get("VersionId")
 			if version_id:
 				self.add_file_version(version_id)
 		except Exception:
 			if file_size:
 				self.file_size = file_size
-			if content_type:
-				self.content_type = content_type
+
+		# Update file_type from content type, matching frappe's set_file_type pattern
+		if content_type:
+			file_extension = guess_extension(content_type)
+			self.file_type = file_extension.lstrip(".").upper() if file_extension else None
 
 		self.flags.cloud_storage = True
 		self.save()
