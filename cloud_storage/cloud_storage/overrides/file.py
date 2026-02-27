@@ -397,6 +397,45 @@ class CloudStorageFile(File):
 		return True
 
 	@frappe.whitelist()
+	def replace_file_via_server(self):
+		"""Replace file content by uploading through the server (fallback when CORS blocks direct PUT)."""
+		if self.is_folder:
+			frappe.throw(_("Cannot replace a folder"))
+		if not self.s3_key:
+			frappe.throw(_("File does not have a cloud storage key"))
+
+		files = frappe.request.files
+		if "file" not in files:
+			frappe.throw(_("No file provided"))
+
+		uploaded: FileStorage = files["file"]
+		content = uploaded.read()
+		content_type = uploaded.content_type or guess_type(self.file_name)[0] or "application/octet-stream"
+
+		client = get_cloud_storage_client()
+		try:
+			response = client.put_object(
+				Body=content,
+				Bucket=client.bucket,
+				Key=self.s3_key,
+				ContentType=content_type,
+			)
+			if response.get("VersionId"):
+				self.add_file_version(response.get("VersionId"))
+		except S3UploadFailedError:
+			frappe.throw(_("File Upload Failed. Please try again."))
+
+		self.file_size = len(content)
+
+		# Update file_type from content type, matching frappe's set_file_type pattern
+		file_extension = guess_extension(content_type)
+		self.file_type = file_extension.lstrip(".").upper() if file_extension else None
+
+		self.flags.cloud_storage = True
+		self.save()
+		return True
+
+	@frappe.whitelist()
 	def get_pdf_preview(self):
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))

@@ -138,6 +138,7 @@ function replace_file(frm) {
 		frappe.dom.freeze(__('Getting upload URL...'))
 
 		try {
+			// Try direct upload via presigned URL first
 			const r = await frm.call('get_replace_upload_url', { doc: frm.doc })
 			if (!r.message) return frappe.dom.unfreeze()
 
@@ -145,35 +146,70 @@ function replace_file(frm) {
 			frappe.dom.unfreeze()
 			frappe.show_progress(__('Uploading...'), 0, 100, __('Please wait'))
 
-			const uploadResponse = await fetch(uploadUrl, {
-				method: 'PUT',
-				headers: { 'Content-Type': file.type || 'application/octet-stream' },
-				body: file,
-			})
+			let directUploadOk = false
+			try {
+				const uploadResponse = await fetch(uploadUrl, {
+					method: 'PUT',
+					headers: { 'Content-Type': file.type || 'application/octet-stream' },
+					body: file,
+				})
+				directUploadOk = uploadResponse.ok
+			} catch (_corsOrNetworkError) {
+				// CORS or network error — will fall back to server-side upload
+				directUploadOk = false
+			}
 
 			frappe.hide_progress()
 
-			if (!uploadResponse.ok) {
-				frappe.msgprint(__('Upload failed. Please try again.'))
-				return
-			}
+			if (directUploadOk) {
+				// Direct upload succeeded — confirm metadata on server
+				frappe.dom.freeze(__('Processing...'))
 
-			frappe.dom.freeze(__('Processing...'))
-
-			const confirmResult = await frm.call('confirm_file_replaced', {
-				doc: frm.doc,
-				file_size: file.size,
-				content_type: file.type || null,
-			})
-
-			frappe.dom.unfreeze()
-
-			if (confirmResult) {
-				frappe.show_alert({
-					message: __('File replaced successfully'),
-					indicator: 'green',
+				const confirmResult = await frm.call('confirm_file_replaced', {
+					doc: frm.doc,
+					file_size: file.size,
+					content_type: file.type || null,
 				})
-				frm.reload_doc()
+
+				frappe.dom.unfreeze()
+
+				if (confirmResult) {
+					frappe.show_alert({
+						message: __('File replaced successfully'),
+						indicator: 'green',
+					})
+					frm.reload_doc()
+				}
+			} else {
+				// Fallback: upload through the server
+				frappe.dom.freeze(__('Uploading via server...'))
+
+				const formData = new FormData()
+				formData.append('cmd', 'run_doc_method')
+				formData.append('docs', JSON.stringify(frappe.get_doc(frm.doc.doctype, frm.doc.name)))
+				formData.append('method', 'replace_file_via_server')
+				formData.append('file', file, file.name)
+
+				const fallbackResponse = await fetch('/api/method/run_doc_method', {
+					method: 'POST',
+					headers: {
+						'X-Frappe-CSRF-Token': frappe.csrf_token,
+						Accept: 'application/json',
+					},
+					body: formData,
+				})
+
+				frappe.dom.unfreeze()
+
+				if (fallbackResponse.ok) {
+					frappe.show_alert({
+						message: __('File replaced successfully'),
+						indicator: 'green',
+					})
+					frm.reload_doc()
+				} else {
+					frappe.msgprint(__('Upload failed. Please try again.'))
+				}
 			}
 		} catch (e) {
 			frappe.hide_progress()
