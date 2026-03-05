@@ -12,6 +12,7 @@ from mimetypes import guess_type
 from pathlib import Path
 from urllib.parse import quote, unquote
 from urllib.request import urlopen
+import tempfile
 
 import frappe
 from boto3.exceptions import S3UploadFailedError
@@ -346,36 +347,54 @@ class CloudStorageFile(File):
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))
 
-		import tempfile
-
 		ext = self.file_name.split(".")[-1].lower()
-		client = get_cloud_storage_client()
-		ppt_s3_key = self.s3_key
-		with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as temp_ppt:
-			ppt_bytes = client.get_object(Bucket=client.bucket, Key=ppt_s3_key)["Body"].read()
-			temp_ppt.write(ppt_bytes)
-			temp_ppt.flush()
-			ppt_path = Path(temp_ppt.name)
-			with tempfile.TemporaryDirectory() as tmpdir:
-				tmpdir_path = Path(tmpdir)
-				subprocess.run(
-					[
-						"libreoffice",
-						"--headless",
-						"--convert-to",
-						"pdf",
-						"--outdir",
-						str(tmpdir_path),
-						str(ppt_path),
-					],
-					check=True,
-				)
-				pdf_filename = ppt_path.with_suffix(".pdf").name
-				pdf_path = tmpdir_path / pdf_filename
-				with open(pdf_path, "rb") as f:
-					pdf_bytes = f.read()
-					encoded = base64.b64encode(pdf_bytes).decode("utf-8")
-					return encoded
+
+		if self.file_url.startswith("/api/method/retrieve"):
+			client = get_cloud_storage_client()
+			ppt_s3_key = self.s3_key
+
+			with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as temp_file:
+				file_bytes = client.get_object(Bucket=client.bucket, Key=ppt_s3_key)["Body"].read()
+
+				temp_file.write(file_bytes)
+				temp_file.flush()
+
+				file_path = Path(temp_file.name)
+
+			return convert_to_pdf_base64(file_path)
+
+		else:
+			if not self.is_private:
+				file_path = Path(frappe.get_site_path("public", "files", self.file_name))
+			else:
+				file_path = Path(frappe.get_site_path("private", "files", self.file_name))
+
+			return convert_to_pdf_base64(file_path)
+
+
+def convert_to_pdf_base64(file_path: Path):
+	with tempfile.TemporaryDirectory() as tmpdir:
+		tmpdir_path = Path(tmpdir)
+
+		subprocess.run(
+			[
+				"libreoffice",
+				"--headless",
+				"--convert-to",
+				"pdf",
+				"--outdir",
+				str(tmpdir_path),
+				str(file_path),
+			],
+			check=True,
+		)
+
+		pdf_filename = file_path.with_suffix(".pdf").name
+		pdf_path = tmpdir_path / pdf_filename
+
+		with open(pdf_path, "rb") as f:
+			pdf_bytes = f.read()
+			return base64.b64encode(pdf_bytes).decode("utf-8")
 
 
 def is_safe_path(path: str) -> bool:
