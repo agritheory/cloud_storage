@@ -126,6 +126,7 @@ class CloudStorageFile(File):
 				"File",
 				{
 					"file_name": ["=", self.file_name],
+					"content_hash": self.content_hash,
 					"name": ["!=", self.name],
 					"is_folder": False,
 				},
