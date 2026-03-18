@@ -32,7 +32,7 @@ frappe.ui.form.on('File', {
 
 	preview_3d: function (frm) {
 		// Add "Preview 3D" button in the form toolbar
-		frm.add_custom_button(__('🧊 Preview 3D'), () => {
+		frm.add_custom_button(__('Preview 3D'), () => {
 			launch_3d_modal(frm.doc.file_url, frm.doc.file_name)
 		})
 	},
