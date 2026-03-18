@@ -759,7 +759,7 @@ def proxy_file(key: str):
 	Fetch file from S3 server-side and stream back to browser.
 	Used for 3D preview to avoid CORS issues with direct S3 URLs.
 	"""
-	import requests
+	import requests  # type: ignore[import-untyped]
 
 	if not key:
 		frappe.throw(_("Key not found"))
