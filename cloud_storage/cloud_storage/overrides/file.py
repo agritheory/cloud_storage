@@ -751,3 +751,54 @@ def add_child_file_association(attached_to_doctype, attached_to_name):
 		"user": frappe.session.user,
 		"timestamp": get_datetime(),
 	}
+
+
+@frappe.whitelist()
+def proxy_file(key: str):
+	"""
+	Fetch file from S3 server-side and stream back to browser.
+	Used for 3D preview to avoid CORS issues with direct S3 URLs.
+	"""
+	import requests  # type: ignore[import-untyped]
+
+	if not key:
+		frappe.throw(_("Key not found"))
+
+	# Check file permissions
+	file = frappe.get_value("File", {"s3_key": key}, ["name", "is_private"], as_dict=True)
+	if not file:
+		frappe.throw(_("File not found"))
+
+	if file.is_private:
+		file_doc = frappe.get_doc("File", file.name)
+		frappe.has_permission(
+			doctype="File", ptype="read", doc=file_doc, user=frappe.session.user, throw=True
+		)
+
+	# Get presigned URL and fetch content server-side
+	client = get_cloud_storage_client()
+	signed_url = client.generate_presigned_url(
+		ClientMethod="get_object",
+		Params={"Bucket": client.bucket, "Key": key},
+		ExpiresIn=60,
+	)
+
+	response = requests.get(signed_url)
+	response.raise_for_status()
+
+	# Return file content directly to browser
+	ext = key.split(".")[-1].lower()
+	content_types = {
+		"obj": "text/plain",
+		"glb": "model/gltf-binary",
+		"gltf": "model/gltf+json",
+		"stl": "model/stl",
+		"ply": "application/octet-stream",
+		"fbx": "application/octet-stream",
+		"dae": "model/vnd.collada+xml",
+	}
+
+	frappe.local.response.filename = key.split("/")[-1]
+	frappe.local.response.filecontent = response.content
+	frappe.local.response.type = "download"
+	frappe.local.response["Content-Type"] = content_types.get(ext, "application/octet-stream")
