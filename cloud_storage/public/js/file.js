@@ -30,11 +30,13 @@ frappe.ui.form.on('File', {
 		}
 	},
 
-	preview_3d: function (frm) {
-		// Add "Preview 3D" button in the form toolbar
-		frm.add_custom_button(__('Preview 3D'), () => {
-			launch_3d_modal(frm.doc.file_url, frm.doc.file_name)
-		})
+	preview_3d: async function (frm) {
+		const field = frm.get_field('preview_html')
+		const container = document.createElement('div')
+		container.style.cssText = 'width:100%;height:500px;background:#1a1a2e;border-radius:6px;position:relative;'
+		field.$wrapper.html(container)
+		frm.toggle_display('preview', true)
+		await render_3d_in_container(container, frm.doc.file_url, frm.doc.file_name)
 	},
 
 	preview_file_as_pdf: async function (frm) {
@@ -129,12 +131,9 @@ function get_sharing_link(frm, reset) {
 		})
 }
 
-// ─── 3D Modal ────────────────────────────────────────────────────────────────
-
 const THREE_CDN = 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js'
 const CDN = 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm'
 
-// Inject importmap so loaders can resolve bare "three" specifier
 function inject_importmap() {
 	if (document.querySelector('script[type="importmap"]')) return
 	const map = document.createElement('script')
@@ -148,34 +147,17 @@ function inject_importmap() {
 	document.head.prepend(map)
 }
 
-async function launch_3d_modal(file_url, filename) {
+async function render_3d_in_container(container, file_url, filename) {
 	inject_importmap()
-	const dialog = new frappe.ui.Dialog({
-		title: `🧊 ${filename}`,
-		size: 'extra-large',
-	})
-	dialog.show()
-
-	// Style the dialog body as a 3D viewport
-	const $body = dialog.$wrapper.find('.modal-body')
-	$body.css({ padding: 0, background: '#1a1a2e', 'min-height': '70vh' })
-
-	const container = document.createElement('div')
-	container.style.cssText = 'width:100%;height:70vh;position:relative;'
-	$body[0].appendChild(container)
-
-	// Loading indicator
 	const $loading = $(
 		'<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:16px;z-index:1;">Loading 3D model...</div>'
 	)
 	$(container).append($loading)
 
 	try {
-		// Extract S3 key from the retrieve URL e.g. /api/method/retrieve?key=Item/Kiwi/cube.obj
 		const key = new URLSearchParams(file_url.split('?')[1]).get('key')
 		const proxy_url = `/api/method/cloud_storage.cloud_storage.overrides.file.proxy_file?key=${encodeURIComponent(key)}`
 
-		// Fetch file server-side through Frappe proxy (avoids S3 CORS)
 		const response = await fetch(proxy_url, {
 			credentials: 'same-origin',
 			headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
@@ -190,28 +172,23 @@ async function launch_3d_modal(file_url, filename) {
 		const w = container.clientWidth
 		const h = container.clientHeight
 
-		// Scene
 		const scene = new THREE.Scene()
 		scene.background = new THREE.Color(0x1a1a2e)
 		scene.add(new THREE.GridHelper(10, 20, 0x444444, 0x333333))
 
-		// Camera
 		const camera = new THREE.PerspectiveCamera(60, w / h, 0.01, 10000)
 		camera.position.set(3, 3, 3)
 
-		// Renderer
 		const renderer = new THREE.WebGLRenderer({ antialias: true })
 		renderer.setSize(w, h)
 		renderer.setPixelRatio(window.devicePixelRatio)
 		renderer.shadowMap.enabled = true
 		container.appendChild(renderer.domElement)
 
-		// Controls
 		const controls = new OrbitControls(camera, renderer.domElement)
 		controls.enableDamping = true
 		controls.dampingFactor = 0.05
 
-		// Lights
 		scene.add(new THREE.AmbientLight(0xffffff, 0.6))
 		const dir = new THREE.DirectionalLight(0xffffff, 1)
 		dir.position.set(5, 10, 5)
@@ -219,11 +196,9 @@ async function launch_3d_modal(file_url, filename) {
 		scene.add(dir)
 		scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.4))
 
-		// Load model using blob URL (avoids CORS/auth issues with S3)
 		const ext = filename.split('.').pop().toLowerCase()
 		const object = await load_3d_model(THREE, ext, blob_url)
 
-		// Center & fit camera
 		const box = new THREE.Box3().setFromObject(object)
 		const size = box.getSize(new THREE.Vector3()).length()
 		const center = box.getCenter(new THREE.Vector3())
@@ -239,7 +214,6 @@ async function launch_3d_modal(file_url, filename) {
 		scene.add(object)
 		$loading.remove()
 
-		// Animate
 		let running = true
 		function animate() {
 			if (!running) return
@@ -249,7 +223,6 @@ async function launch_3d_modal(file_url, filename) {
 		}
 		animate()
 
-		// Resize handler
 		const on_resize = () => {
 			const w = container.clientWidth
 			const h = container.clientHeight
@@ -259,7 +232,6 @@ async function launch_3d_modal(file_url, filename) {
 		}
 		window.addEventListener('resize', on_resize)
 
-		// Cleanup on dialog close
 		dialog.$wrapper.on('hidden.bs.modal', () => {
 			running = false
 			renderer.dispose()
