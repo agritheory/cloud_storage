@@ -83,6 +83,10 @@ const props = defineProps({
 
 const src = ref(null)
 const optimize = ref(props.file.optimize)
+const lastDot = props.file.name.lastIndexOf('.')
+
+let filename = lastDot > 0 ? props.file.name.slice(0, lastDot) : props.file.name
+let extension = lastDot > 0 ? props.file.name.slice(lastDot) : ''
 
 const is_image = computed(() => props.file.file_obj?.type?.startsWith('image'))
 const uploaded = computed(() => props.file.request_succeeded)
