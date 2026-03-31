@@ -89,9 +89,9 @@ after_install = "cloud_storage.install.after_install"
 # 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
 # }
 
-has_permission = {
-	"File": "cloud_storage.cloud_storage.overrides.file.has_permission",
-}
+# has_permission = {
+# "File": "cloud_storage.cloud_storage.overrides.file.has_permission",
+# }
 
 # DocType Class
 # ---------------

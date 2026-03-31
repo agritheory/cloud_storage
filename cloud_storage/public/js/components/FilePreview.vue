@@ -81,8 +81,10 @@ const props = defineProps({
 // variables
 let src = ref(null)
 let optimize = ref(props.file.optimize)
-let filename = props.file.name.substr(0, props.file.name.indexOf('.'))
-let extension = props.file.name.substr(props.file.name.indexOf('.'))
+const lastDot = props.file.name.lastIndexOf('.')
+
+let filename = lastDot > 0 ? props.file.name.slice(0, lastDot) : props.file.name
+let extension = lastDot > 0 ? props.file.name.slice(lastDot) : ''
 
 // computed
 let file_size = computed(() => {
