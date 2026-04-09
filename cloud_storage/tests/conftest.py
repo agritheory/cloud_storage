@@ -87,4 +87,8 @@ def mocked_s3_client():
 		)
 		bucket = "test_bucket"
 		client.create_bucket(Bucket=bucket)
+		client.put_bucket_versioning(
+			Bucket=bucket,
+			VersioningConfiguration={"Status": "Enabled"},
+		)
 		yield _MockedS3Client(client, bucket, "test_folder", 110)

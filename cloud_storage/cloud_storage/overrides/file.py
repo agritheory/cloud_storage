@@ -236,6 +236,21 @@ class CloudStorageFile(File):
 				"timestamp": get_datetime(),
 			},
 		)
+		if not self.is_new():
+			# File already exists in DB (filename-conflict path in write_file).
+			# Frappe's save lifecycle won't persist this file's child tables,
+			# so we insert the version record directly.
+			frappe.get_doc(
+				{
+					"doctype": "File Version",
+					"parent": self.name,
+					"parenttype": "File",
+					"parentfield": "versions",
+					"version": str(version_id),
+					"user": frappe.session.user,
+					"timestamp": get_datetime(),
+				}
+			).insert(ignore_permissions=True)
 
 	def remove_file_association(self, dt: str, dn: str) -> None:
 		if len(self.file_association) <= 1:
@@ -525,17 +540,19 @@ def upload_file(file: File) -> File:
 	path = get_file_path(file, client.folder)
 	file.db_set("file_url", FILE_URL.format(path=path))
 	content_type = file.content_type or from_buffer(file.content, mime=True)
+	version_id = None
 	try:
 		response = client.put_object(
 			Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type
 		)
-		if response.get("VersionId"):
-			file.add_file_version(response.get("VersionId"))
+		version_id = response.get("VersionId") or file.content_hash
 		file.associate_files(file.attached_to_doctype, file.attached_to_name)
 	except S3UploadFailedError:
 		frappe.throw(_("File Upload Failed. Please try again."))
 	except Exception as e:
 		frappe.log_error("File Upload Error", e)
+	if version_id:
+		file.add_file_version(version_id)
 	file.db_set("s3_key", path)
 	return file
 
