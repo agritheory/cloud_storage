@@ -188,26 +188,29 @@ def test_save_file_without_S3_and_preview(example_file_record_4, example_file_re
 			frappe.conf.cloud_storage_settings = old_settings
 
 
-@mock_s3
-def test_file_versioning_with_content_change(example_file_record_5, tmp_path):
-	frappe.set_user("Administrator")
-	file1 = create_upload_file(example_file_record_5, file_name="sample.csv")
-	assert frappe.db.exists("File", file1.name)
+def test_file_versioning_with_content_change(mocked_s3_client, example_file_record_5, tmp_path):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		frappe.set_user("Administrator")
+		file1 = create_upload_file(example_file_record_5, file_name="sample.csv")
+		assert frappe.db.exists("File", file1.name)
 
-	modified_csv = tmp_path / "sample.csv"
-	with open(example_file_record_5) as src, open(modified_csv, "w") as dst:
-		lines = src.readlines()
-		dst.writelines(lines)
-		dst.write("4,5,6\n")
+		modified_csv = tmp_path / "sample.csv"
+		with open(example_file_record_5) as src, open(modified_csv, "w") as dst:
+			lines = src.readlines()
+			dst.writelines(lines)
+			dst.write("4,5,6\n")
 
-	file2 = create_upload_file(modified_csv, file_name="sample.csv")
-	file2.load_from_db()
+		file2 = create_upload_file(modified_csv, file_name="sample.csv")
+		file1.load_from_db()
 
-	assert len(file1.versions) >= 2
-	# Optionally, check that the latest version is the most recent
-	latest_version = file1.versions[-1]
-	assert latest_version.user == "Administrator"
-	assert latest_version.version is not None
+		assert len(file1.versions) >= 2
+		# Optionally, check that the latest version is the most recent
+		latest_version = file1.versions[-1]
+		assert latest_version.user == "Administrator"
+		assert latest_version.version is not None
 
 
 def test_migration_command(mocked_s3_client, example_file_record_6):
