@@ -7,10 +7,12 @@ on:
       - version-15
       - version-16
       - version-16
+      - version-16
   pull_request:
     branches:
       - version-14
       - version-15
+      - version-16
       - version-16
       - version-16
 
