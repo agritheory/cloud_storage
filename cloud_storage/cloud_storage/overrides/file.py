@@ -141,8 +141,8 @@ class CloudStorageFile(File):
 					"File Association",
 					{
 						"parent": associated_doc,
-						"link_doctype": self.attached_to_doctype,
-						"link_name": self.attached_to_name,
+						"link_doctype": self.attached_to_doctype,  # type: ignore[has-type]
+						"link_name": self.attached_to_name,  # type: ignore[has-type]
 					},
 				)
 				if not already_associated:
