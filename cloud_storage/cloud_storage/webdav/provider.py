@@ -29,6 +29,9 @@ def _folder_display_name(frappe_folder: str) -> str:
 	return frappe_folder.rsplit("/", 1)[-1]
 
 
+_SYSTEM_FOLDERS = {"Home", "Home/Attachments"}
+
+
 class FrappeCollection(DAVCollection):
 	"""A Frappe File folder exposed as a WebDAV collection."""
 
@@ -103,7 +106,6 @@ class FrappeCollection(DAVCollection):
 
 		return None
 
-	# v1: read-only — reject all write operations
 	def create_empty_resource(self, name: str):
 		raise DAVError(HTTP_FORBIDDEN)
 
@@ -111,7 +113,26 @@ class FrappeCollection(DAVCollection):
 		raise DAVError(HTTP_FORBIDDEN)
 
 	def delete(self):
-		raise DAVError(HTTP_FORBIDDEN)
+		if self.frappe_folder in _SYSTEM_FOLDERS:
+			raise DAVError(HTTP_FORBIDDEN)
+
+		parent = frappe_folder_parent(self.frappe_folder)
+		display_name = _folder_display_name(self.frappe_folder)
+		folder_name = frappe.db.get_value(
+			"File",
+			{"folder": parent, "file_name": display_name, "is_folder": 1},
+			"name",
+		)
+		if not folder_name:
+			raise DAVError(HTTP_NOT_FOUND)
+
+		try:
+			frappe.delete_doc("File", folder_name)
+			frappe.db.commit()
+		except frappe.PermissionError:
+			raise DAVError(HTTP_FORBIDDEN)
+		except frappe.ValidationError as e:
+			raise DAVError(HTTP_FORBIDDEN, str(e))
 
 	def copy_move_single(self, dest_path: str, is_move: bool):
 		raise DAVError(HTTP_FORBIDDEN)
@@ -192,12 +213,19 @@ class FrappeFile(DAVNonCollection):
 			file_path = frappe.get_site_path("public", "files", self.file_doc.file_name)
 		return open(file_path, "rb")
 
-	# v1: read-only
 	def begin_write(self, content_type: Optional[str] = None):
 		raise DAVError(HTTP_FORBIDDEN)
 
 	def delete(self):
-		raise DAVError(HTTP_FORBIDDEN)
+		try:
+			# Clear associations first so the hook proceeds to _delete_file_on_disk.
+			frappe.db.delete("File Association", {"parent": self.file_doc.name})
+			frappe.delete_doc("File", self.file_doc.name)
+			frappe.db.commit()
+		except frappe.PermissionError:
+			raise DAVError(HTTP_FORBIDDEN)
+		except frappe.ValidationError as e:
+			raise DAVError(HTTP_FORBIDDEN, str(e))
 
 	def copy_move_single(self, dest_path: str, is_move: bool):
 		raise DAVError(HTTP_FORBIDDEN)
