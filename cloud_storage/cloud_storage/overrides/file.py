@@ -99,10 +99,15 @@ class CloudStorageFile(File):
 					"File",
 					{"content_hash": self.content_hash, "name": ["!=", self.name], "is_folder": False},  # type: ignore
 				)
+			s3_key_from_url = None
 			if associated_doc and associated_doc != self.name:
-				self.db_set(
-					"file_url", ""
-				)  # this is done to prevent deletion of the remote file with the delete_file hook
+				# Extract s3_key from file_url before clearing it; clearing prevents the
+				# delete_file hook from removing the remote object when this duplicate is deleted.
+				if "?key=" in (self.file_url or ""):
+					s3_key_from_url = self.file_url.split("?key=")[1]
+				elif "key=" in (self.file_url or ""):
+					s3_key_from_url = self.file_url.split("key=")[1].split("&")[0]
+				self.db_set("file_url", "")
 				rename_doc(
 					self.doctype,
 					self.name,
@@ -114,13 +119,12 @@ class CloudStorageFile(File):
 					# validate=False,
 				)
 			if associated_doc and not self.s3_key:
-				s3_key = None
-				if "?key=" in self.file_url:
-					s3_key = self.file_url.split("?key=")[1]
-				elif "key=" in self.file_url:
-					s3_key = self.file_url.split("key=")[1].split("&")[0]
-				frappe.db.set_value("File", associated_doc, "s3_key", s3_key)
-				frappe.db.commit()
+				# Only write s3_key onto the existing file when we extracted a valid key from
+				# this duplicate's URL and the existing file does not already have one.
+				existing_s3_key = frappe.db.get_value("File", associated_doc, "s3_key")
+				if s3_key_from_url and not existing_s3_key:
+					frappe.db.set_value("File", associated_doc, "s3_key", s3_key_from_url)
+
 		elif self.attached_to_doctype and self.attached_to_name and self.file_name:  # type: ignore
 			associated_doc = frappe.db.get_value(
 				"File",
@@ -133,26 +137,45 @@ class CloudStorageFile(File):
 				"name",  # type: ignore
 			)
 			if associated_doc:
-				doc = frappe.get_doc("File", associated_doc)
-				# Merge file associations
-				doc.append(
-					"file_association",
-					add_child_file_association(
-						self.attached_to_doctype,  # type: ignore
-						self.attached_to_name,  # type: ignore
-					),
+				already_associated = frappe.db.exists(
+					"File Association",
+					{
+						"parent": associated_doc,
+						"link_doctype": self.attached_to_doctype,  # type: ignore[has-type]
+						"link_name": self.attached_to_name,  # type: ignore[has-type]
+					},
 				)
-				already_linked = any(version.version == self.content_hash for version in self.versions)
-				if not already_linked:
-					doc.append(
-						"versions",
+				if not already_associated:
+					frappe.get_doc(
 						{
+							"doctype": "File Association",
+							"parent": associated_doc,
+							"parenttype": "File",
+							"parentfield": "file_association",
+							**add_child_file_association(
+								self.attached_to_doctype,  # type: ignore
+								self.attached_to_name,  # type: ignore
+							),
+						}
+					).insert(ignore_permissions=True)
+
+				already_versioned = frappe.db.exists(
+					"File Version",
+					{"parent": associated_doc, "version": self.content_hash},
+				)
+				if not already_versioned:
+					frappe.get_doc(
+						{
+							"doctype": "File Version",
+							"parent": associated_doc,
+							"parenttype": "File",
+							"parentfield": "versions",
 							"version": str(self.content_hash),
 							"user": frappe.session.user,
 							"timestamp": get_datetime(),
-						},
-					)
-				doc.save()
+						}
+					).insert(ignore_permissions=True)
+
 				frappe.delete_doc("File", self.name, ignore_permissions=True)
 
 	def on_trash(self) -> None:
@@ -554,6 +577,8 @@ def upload_file(file: File) -> File:
 	if version_id:
 		file.add_file_version(version_id)
 	file.db_set("s3_key", path)
+	if not file.is_new() and file.content_hash:
+		file.db_set("content_hash", file.content_hash)
 	return file
 
 
