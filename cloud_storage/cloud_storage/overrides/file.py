@@ -124,7 +124,7 @@ class CloudStorageFile(File):
 				existing_s3_key = frappe.db.get_value("File", associated_doc, "s3_key")
 				if s3_key_from_url and not existing_s3_key:
 					frappe.db.set_value("File", associated_doc, "s3_key", s3_key_from_url)
-					frappe.db.commit()
+
 		elif self.attached_to_doctype and self.attached_to_name and self.file_name:  # type: ignore
 			associated_doc = frappe.db.get_value(
 				"File",
