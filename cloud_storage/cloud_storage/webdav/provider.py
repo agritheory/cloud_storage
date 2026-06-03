@@ -101,7 +101,7 @@ def _restore_s3_backup(backup: tuple[object, str, str] | None) -> None:
 def _strip_dav_prefix(path: str) -> str:
 	"""Strip /dav prefix so both PATH_INFO and Destination headers resolve uniformly."""
 	if path.startswith(_MOUNT_PREFIX + "/"):
-		return path[len(_MOUNT_PREFIX):]
+		return path[len(_MOUNT_PREFIX) :]
 	if path in (_MOUNT_PREFIX, _MOUNT_PREFIX + "/"):
 		return "/"
 	return path
@@ -344,7 +344,7 @@ class FrappeCollection(DAVCollection):
 			)
 			_logger.debug(f"folder move reparenting {len(affected)} descendant(s)")
 			for f in affected:
-				new_folder_path = new_frappe_folder + f.folder[len(old):]
+				new_folder_path = new_frappe_folder + f.folder[len(old) :]
 				frappe.db.set_value("File", f.name, "folder", new_folder_path)
 			frappe.db.commit()
 			return []
@@ -571,8 +571,7 @@ class FrappeFile(DAVNonCollection):
 		if not _can_write_folder(new_folder):
 			raise DAVError(HTTP_FORBIDDEN)
 		_logger.debug(
-			f"file move doc={self.file_doc.name} {self.file_doc.file_name!r} → "
-			f"{new_folder}/{new_name}"
+			f"file move doc={self.file_doc.name} {self.file_doc.file_name!r} → " f"{new_folder}/{new_name}"
 		)
 
 		# MOVE overwrites the destination if it exists. If the destination has

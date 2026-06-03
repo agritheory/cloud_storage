@@ -2,7 +2,8 @@
 # For license information, please see license.txt
 # Redis-backed wsgidav LockStorage — keeps locks consistent across gunicorn workers.
 
-from typing import Any, Iterator
+from typing import Any
+from collections.abc import Iterator
 
 import frappe
 from wsgidav.lock_man.lock_storage import LockStorageDict
@@ -55,10 +56,7 @@ class _RedisDict:
 		# hgetall unpickles values but leaves Redis hash keys as raw bytes;
 		# wsgidav compares them against str URLs so we decode here.
 		raw = self._cache().hgetall(self._ns) or {}
-		return {
-			(k.decode("utf-8") if isinstance(k, bytes) else k): v
-			for k, v in raw.items()
-		}
+		return {(k.decode("utf-8") if isinstance(k, bytes) else k): v for k, v in raw.items()}
 
 
 class RedisLockStorage(LockStorageDict):
