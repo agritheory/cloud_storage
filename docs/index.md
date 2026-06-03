@@ -4,7 +4,7 @@ For license information, please see license.txt-->
 # Cloud Storage Documentation
 
 <div class="byline">
-  Tyler Matteson and semantic-release 2026-02-21
+  Rohan Bansal, Devarsh Bhatt, Ishwarya, Heather Kusmierz, lauty95, Tyler Matteson, and Francisco Roldán 2026-06-03
 </div>
 
 

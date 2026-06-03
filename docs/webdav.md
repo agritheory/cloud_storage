@@ -4,7 +4,7 @@ For license information, please see license.txt-->
 # Desktop File Access via WebDAV
 
 <div class="byline">
-  Tyler Matteson and semantic-release 2026-02-21
+  lauty95 2026-06-03
 </div>
 
 
