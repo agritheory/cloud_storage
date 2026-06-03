@@ -1,13 +1,13 @@
 # Copyright (c) 2026, AgriTheory and contributors
 # For license information, please see license.txt
-
-from __future__ import annotations
+# Maps Frappe File/folder doctypes to wsgidav DAV resources.
 
 import io
 import mimetypes
-from typing import Optional
 
 import frappe
+from frappe.core.doctype.file.utils import get_content_hash
+from frappe.model.rename_doc import rename_doc
 from wsgidav.dav_error import (
 	DAVError,
 	HTTP_FORBIDDEN,
@@ -16,18 +16,9 @@ from wsgidav.dav_error import (
 )
 from wsgidav.dav_provider import DAVCollection, DAVNonCollection, DAVProvider
 
-
-def _dav_path_to_frappe_folder(dav_path: str) -> str:
-	"""Map a WebDAV path to the corresponding Frappe folder name.
-
-	/              → Home
-	/Attachments/  → Home/Attachments
-	/a/b/c/        → Home/a/b/c
-	"""
-	parts = [p for p in dav_path.strip("/").split("/") if p]
-	if not parts:
-		return "Home"
-	return "Home/" + "/".join(parts)
+from cloud_storage.cloud_storage.overrides.file import FILE_URL, get_cloud_storage_client
+from cloud_storage.cloud_storage.webdav import memory as os_file_store
+from cloud_storage.cloud_storage.webdav import paths
 
 
 def _folder_display_name(frappe_folder: str) -> str:
@@ -37,19 +28,9 @@ def _folder_display_name(frappe_folder: str) -> str:
 _SYSTEM_FOLDERS = {"Home", "Home/Attachments"}
 _OS_FILES = frozenset({".DS_Store", "desktop.ini", "Thumbs.db", ".Trashes", ".Spotlight-V100"})
 _OS_PREFIXES = ("._",)
-
-# Editor / OS atomic-save scratchpads. macOS TextEdit and many other editors
-# write via MKCOL → PUT → MOVE → DELETE on a sibling folder named like
-# "<file>.sb-<hex>". They're real folders/files (we must let MKCOL/PUT/MOVE
-# work on them) but they only ever exist for a few hundred ms — we hide them
-# from listings so they don't appear in Finder if a save crashes mid-flight.
+# Editor atomic-save scratchpads (e.g. TextEdit's "<file>.sb-<hex>" folders).
+# Functional but hidden from listings so they don't persist visibly if a save crashes.
 _TEMP_PREFIXES = (".sb-",)
-
-# In-memory store for OS metadata files (AppleDouble ._*, .DS_Store, ...).
-# Finder requires these to read/write/lock successfully for drag-and-drop to work,
-# but they're transient and shouldn't pollute Frappe / S3. They live here only
-# for the lifetime of the server process — small, ephemeral, and per-server.
-_OS_FILE_STORE: dict[str, bytes] = {}
 
 
 def _is_os_metadata(name: str) -> bool:
@@ -60,18 +41,51 @@ def _is_hidden_from_listing(name: str) -> bool:
 	return name.startswith(_OS_PREFIXES) or name in _OS_FILES or name.startswith(_TEMP_PREFIXES)
 
 
-def _parse_dest(dest_path: str) -> tuple[str, str]:
-	"""Parse a WebDAV destination path into (frappe_folder, new_name).
+_MOUNT_PREFIX = "/dav"
+_logger = frappe.logger("webdav", allow_site=False)
 
-	wsgidav may pass the destination either with or without the /dav mount
-	prefix; we handle both.
+
+def _strip_dav_prefix(path: str) -> str:
+	"""Strip /dav prefix so both PATH_INFO and Destination headers resolve uniformly."""
+	if path.startswith(_MOUNT_PREFIX + "/"):
+		return path[len(_MOUNT_PREFIX):]
+	if path in (_MOUNT_PREFIX, _MOUNT_PREFIX + "/"):
+		return "/"
+	return path
+
+
+def _can(target, ptype: str) -> bool:
+	"""Per-doc permission check. target must be a doc name or doc object, not a doctype string."""
+	return frappe.has_permission("File", doc=target, ptype=ptype, user=frappe.session.user)
+
+
+def _can_create() -> bool:
+	"""Doctype-level create check (no specific doc yet)."""
+	return frappe.has_permission("File", ptype="create", user=frappe.session.user)
+
+
+def _can_write_folder(frappe_folder: str) -> bool:
+	"""Check write permission on a Frappe folder path (e.g. 'Home/Docs').
+
+	Returns True for the virtual root 'Home' (no doc exists for it) so that
+	PUT/MKCOL/MOVE into the root collection aren't incorrectly blocked.
 	"""
-	dest = dest_path
-	if dest.startswith("/dav/"):
-		dest = dest[len("/dav"):]
-	elif dest in ("/dav", "/dav/"):
-		dest = "/"
-	dest = dest.rstrip("/")
+	if frappe_folder == "Home":
+		return True
+	parent = frappe_folder_parent(frappe_folder)
+	display = _folder_display_name(frappe_folder)
+	folder_name = frappe.db.get_value(
+		"File",
+		{"folder": parent, "file_name": display, "is_folder": 1},
+		"name",
+	)
+	if not folder_name:
+		return False
+	return _can(folder_name, "write")
+
+
+def _parse_dest(dest_path: str) -> tuple[str, str]:
+	dest = _strip_dav_prefix(dest_path).rstrip("/")
 	parts = [p for p in dest.split("/") if p]
 	if not parts:
 		raise DAVError(HTTP_FORBIDDEN, "invalid destination")
@@ -87,13 +101,12 @@ class FrappeCollection(DAVCollection):
 	def __init__(self, path: str, environ: dict, frappe_folder: str) -> None:
 		super().__init__(path, environ)
 		self.frappe_folder = frappe_folder
-		self._meta: Optional[dict] = None
+		self._meta: dict | None = None
 
-	def _get_meta(self) -> Optional[dict]:
+	def _get_meta(self) -> dict | None:
 		if self._meta is None:
 			parent = frappe_folder_parent(self.frappe_folder)
 			if not parent:
-				# "Home" is the virtual root — no File doc exists for it
 				return None
 			name = _folder_display_name(self.frappe_folder)
 			self._meta = frappe.db.get_value(
@@ -104,11 +117,11 @@ class FrappeCollection(DAVCollection):
 			)
 		return self._meta
 
-	def get_creation_date(self) -> Optional[float]:
+	def get_creation_date(self) -> float | None:
 		meta = self._get_meta()
 		return meta.creation.timestamp() if meta else None
 
-	def get_last_modified(self) -> Optional[float]:
+	def get_last_modified(self) -> float | None:
 		meta = self._get_meta()
 		return meta.modified.timestamp() if meta else None
 
@@ -119,59 +132,70 @@ class FrappeCollection(DAVCollection):
 		return None
 
 	def get_member_names(self) -> list[str]:
-		names: list[str] = []
-
-		folders = frappe.get_all(
+		# get_all + _can(read): File's permission_query_conditions is owner-only
+		# for non-SM users but has_permission also allows public/attached/shared
+		# files. Filtering with _can mirrors what GET would actually serve.
+		rows = frappe.get_all(
 			"File",
-			filters={"folder": self.frappe_folder, "is_folder": 1},
-			fields=["file_name"],
+			filters={"folder": self.frappe_folder},
+			fields=["name", "file_name"],
 		)
-		names.extend(f.file_name for f in folders)
-
-		files = frappe.get_all(
-			"File",
-			filters={"folder": self.frappe_folder, "is_folder": 0},
-			fields=["file_name"],
-		)
-		names.extend(f.file_name for f in files)
-
-		return [n for n in names if not _is_hidden_from_listing(n)]
+		return [
+			r.file_name for r in rows if not _is_hidden_from_listing(r.file_name) and _can(r.name, "read")
+		]
 
 	def get_member(self, name: str):
 		child_path = self.path.rstrip("/") + "/" + name
 
 		if _is_os_metadata(name):
-			if child_path in _OS_FILE_STORE:
+			if os_file_store.contains(child_path):
 				return _MemoryFile(child_path, self.environ, name)
 			return None
 
-		child_frappe_folder = f"{self.frappe_folder}/{name}"
-
-		if frappe.db.exists("File", {"folder": self.frappe_folder, "file_name": name, "is_folder": 1}):
+		# Same get_all + _can rationale as get_member_names.
+		# Both "not found" and "no permission" return None → wsgidav sends 404,
+		# which doesn't leak resource existence to unauthorized callers.
+		folder_match = frappe.get_all(
+			"File",
+			filters={"folder": self.frappe_folder, "file_name": name, "is_folder": 1},
+			pluck="name",
+			limit=1,
+		)
+		if folder_match:
+			if not _can(folder_match[0], "read"):
+				return None
+			child_frappe_folder = f"{self.frappe_folder}/{name}"
 			return FrappeCollection(child_path + "/", self.environ, child_frappe_folder)
 
-		file_doc = frappe.db.get_value(
+		file_rows = frappe.get_all(
 			"File",
-			{"folder": self.frappe_folder, "file_name": name, "is_folder": 0},
-			_FILE_FIELDS,
-			as_dict=True,
+			filters={"folder": self.frappe_folder, "file_name": name, "is_folder": 0},
+			fields=_FILE_FIELDS,
+			limit=1,
 		)
-		if file_doc:
-			return FrappeFile(child_path, self.environ, file_doc)
+		if file_rows:
+			if not _can(file_rows[0].name, "read"):
+				return None
+			return FrappeFile(child_path, self.environ, file_rows[0])
 
 		return None
 
 	def create_empty_resource(self, name: str):
 		child_path = self.path.rstrip("/") + "/" + name
-		# macOS metadata files (._*, .DS_Store, ...) are handled in-memory —
-		# Finder uploads them before the real content and aborts the whole
-		# transfer if they fail, but they shouldn't pollute Frappe / S3.
+		# OS metadata files go to in-memory store, not Frappe/S3.
 		if _is_os_metadata(name):
 			return _MemoryFile(child_path, self.environ, name)
+		if not _can_create():
+			raise DAVError(HTTP_FORBIDDEN)
+		if not _can_write_folder(self.frappe_folder):
+			raise DAVError(HTTP_FORBIDDEN)
 		return FrappeNewFile(child_path, self.environ, self.frappe_folder, name)
 
 	def create_collection(self, name: str):
-		"""MKCOL — create a Frappe folder."""
+		if not _can_create():
+			raise DAVError(HTTP_FORBIDDEN)
+		if not _can_write_folder(self.frappe_folder):
+			raise DAVError(HTTP_FORBIDDEN)
 		if frappe.db.exists("File", {"folder": self.frappe_folder, "file_name": name}):
 			raise DAVError(HTTP_METHOD_NOT_ALLOWED, "destination already exists")
 		try:
@@ -179,6 +203,7 @@ class FrappeCollection(DAVCollection):
 			folder.file_name = name
 			folder.folder = self.frappe_folder
 			folder.is_folder = 1
+			folder.is_private = 1
 			folder.flags.cloud_storage = True
 			folder.insert()
 			frappe.db.commit()
@@ -188,9 +213,6 @@ class FrappeCollection(DAVCollection):
 			raise DAVError(HTTP_FORBIDDEN, str(e))
 
 	def delete(self):
-		if self.frappe_folder in _SYSTEM_FOLDERS:
-			raise DAVError(HTTP_FORBIDDEN)
-
 		parent = frappe_folder_parent(self.frappe_folder)
 		display_name = _folder_display_name(self.frappe_folder)
 		folder_name = frappe.db.get_value(
@@ -200,7 +222,8 @@ class FrappeCollection(DAVCollection):
 		)
 		if not folder_name:
 			raise DAVError(HTTP_NOT_FOUND)
-
+		if not _can(folder_name, "delete"):
+			raise DAVError(HTTP_FORBIDDEN)
 		try:
 			frappe.delete_doc("File", folder_name)
 			frappe.db.commit()
@@ -209,15 +232,40 @@ class FrappeCollection(DAVCollection):
 		except frappe.ValidationError as e:
 			raise DAVError(HTTP_FORBIDDEN, str(e))
 
-	def copy_move_single(self, dest_path: str, is_move: bool):
-		"""MOVE — rename or move this folder (and all its descendants)."""
-		if not is_move:
-			raise DAVError(HTTP_FORBIDDEN, "COPY for folders is not supported")
+	def handle_copy(self, dest_path: str, *, depth_infinity: bool) -> bool:
+		# COPY is not supported. Raising here prevents wsgidav from deleting
+		# the destination before discovering copy_move_single raises too.
+		raise DAVError(HTTP_FORBIDDEN)
+
+	def handle_move(self, dest_path: str) -> bool | list:
+		# Handle MOVE natively so wsgidav never reaches its fallback path that
+		# deletes an existing destination before calling move_recursive().
+		if self.frappe_folder in _SYSTEM_FOLDERS:
+			raise DAVError(HTTP_FORBIDDEN, "cannot move system folders")
+		parent = frappe_folder_parent(self.frappe_folder)
+		display = _folder_display_name(self.frappe_folder)
+		folder_name = frappe.db.get_value(
+			"File",
+			{"folder": parent, "file_name": display, "is_folder": 1},
+			"name",
+		)
+		if not folder_name or not _can(folder_name, "write"):
+			raise DAVError(HTTP_FORBIDDEN)
+		new_parent, _ = _parse_dest(dest_path)
+		if not _can_write_folder(new_parent):
+			raise DAVError(HTTP_FORBIDDEN)
+		return self.move_recursive(dest_path)
+
+	def copy_move_single(self, dest_path: str, *, is_move: bool):
+		raise DAVError(HTTP_FORBIDDEN)
+
+	def move_recursive(self, dest_path: str):
 		if self.frappe_folder in _SYSTEM_FOLDERS:
 			raise DAVError(HTTP_FORBIDDEN, "cannot move system folders")
 
 		new_parent, new_name = _parse_dest(dest_path)
 		new_frappe_folder = f"{new_parent}/{new_name}"
+		_logger.debug(f"folder move src={self.frappe_folder!r} → {new_frappe_folder!r}")
 
 		parent = frappe_folder_parent(self.frappe_folder)
 		display = _folder_display_name(self.frappe_folder)
@@ -228,17 +276,40 @@ class FrappeCollection(DAVCollection):
 		)
 		if not folder_name:
 			raise DAVError(HTTP_NOT_FOUND)
+		if not _can(folder_name, "write"):
+			raise DAVError(HTTP_FORBIDDEN)
+		if not _can_write_folder(new_parent):
+			raise DAVError(HTTP_FORBIDDEN)
 		if frappe.db.exists(
 			"File",
 			{"folder": new_parent, "file_name": new_name, "is_folder": 1, "name": ["!=", folder_name]},
 		):
 			raise DAVError(HTTP_METHOD_NOT_ALLOWED, "destination already exists")
 
+		savepoint = "webdav_folder_move"
+		frappe.db.savepoint(savepoint)
 		try:
-			frappe.db.set_value("File", folder_name, "file_name", new_name)
-			frappe.db.set_value("File", folder_name, "folder", new_parent)
-			# Reparent every descendant: any File whose `folder` starts with the
-			# old path (including itself) gets that prefix swapped for the new.
+			# Frappe stores folder path in both `name` (PK) and display fields
+			# (`file_name`, `folder`). rename_doc updates the PK but leaves
+			# display fields stale — update them first.
+			if new_name != display:
+				frappe.db.set_value("File", self.frappe_folder, "file_name", new_name)
+			if new_parent != parent:
+				frappe.db.set_value("File", self.frappe_folder, "folder", new_parent)
+
+			if new_frappe_folder != self.frappe_folder:
+				rename_doc(
+					"File",
+					self.frappe_folder,
+					new_frappe_folder,
+					merge=False,
+					force=True,
+					show_alert=False,
+					validate=False,
+				)
+
+			# Reparent descendants (rename_doc only updates direct children).
+			# get_all intentional: descendants must move atomically with parent.
 			old = self.frappe_folder
 			affected = frappe.get_all(
 				"File",
@@ -248,21 +319,24 @@ class FrappeCollection(DAVCollection):
 				],
 				fields=["name", "folder"],
 			)
+			_logger.debug(f"folder move reparenting {len(affected)} descendant(s)")
 			for f in affected:
-				new_folder = new_frappe_folder + f.folder[len(old):]
-				frappe.db.set_value("File", f.name, "folder", new_folder)
+				new_folder_path = new_frappe_folder + f.folder[len(old):]
+				frappe.db.set_value("File", f.name, "folder", new_folder_path)
 			frappe.db.commit()
-		except frappe.PermissionError:
-			raise DAVError(HTTP_FORBIDDEN)
-		except frappe.ValidationError as e:
-			raise DAVError(HTTP_FORBIDDEN, str(e))
+			return []
+		except Exception as exc:
+			frappe.db.rollback(save_point=savepoint)
+			if isinstance(exc, frappe.PermissionError):
+				raise DAVError(HTTP_FORBIDDEN)
+			if isinstance(exc, frappe.ValidationError):
+				raise DAVError(HTTP_FORBIDDEN, str(exc))
+			raise
 
 	def support_recursive_delete(self) -> bool:
 		return False
 
 	def support_recursive_move(self, dest_path: str) -> bool:
-		# We rename/move the folder doc + reparent descendants in one transaction
-		# inside copy_move_single — much faster than wsgidav's per-child loop.
 		return True
 
 
@@ -280,15 +354,14 @@ _FILE_FIELDS = [
 
 
 class _WriteBuffer(io.RawIOBase):
-	"""Accumulates a WebDAV PUT body; on close creates a Frappe File doc and uploads to S3.
+	"""Accumulates PUT body; on close inserts a File doc and uploads content.
 
-	macOS Finder uses a two-step upload: PUT Content-Length: 0 to claim the path,
-	then LOCK, then a second PUT with the real content. When content is empty we
-	create a placeholder doc so the LOCK handler can find the resource via
-	get_resource_inst() — without it, wsgidav's lock-discovery crashes on NoneType.
+	Finder's two-step upload sends PUT Content-Length:0 first (to claim the
+	path), then LOCK, then a second PUT with real content. An empty body
+	creates a placeholder doc so the LOCK handler can find the resource.
 	"""
 
-	def __init__(self, file_name: str, frappe_folder: str, content_type: Optional[str]) -> None:
+	def __init__(self, file_name: str, frappe_folder: str, content_type: str | None) -> None:
 		self._buf = io.BytesIO()
 		self._file_name = file_name
 		self._frappe_folder = frappe_folder
@@ -299,7 +372,7 @@ class _WriteBuffer(io.RawIOBase):
 
 	def close(self) -> None:
 		if not self.closed:
-			super().close()  # mark closed first so double-close is a no-op
+			super().close()
 			try:
 				self._commit()
 			except Exception:
@@ -309,20 +382,17 @@ class _WriteBuffer(io.RawIOBase):
 			super().close()
 
 	def _commit(self) -> None:
-		from frappe.core.doctype.file.utils import get_content_hash
-		from cloud_storage.cloud_storage.overrides.file import upload_file
-
 		content = self._buf.getvalue()
 
 		file_doc = frappe.new_doc("File")
 		file_doc.file_name = self._file_name
 		file_doc.folder = self._frappe_folder
-		file_doc.is_private = 0
-		# flags.cloud_storage skips validate_file_url (file_url is set later by upload_file)
+		# Private by default: non-private files skip expiration + perm checks in
+		# get_presigned_url, undermining the per-user WebDAV perm model.
+		file_doc.is_private = 1
 		file_doc.flags.cloud_storage = True
 
 		if not content:
-			# Empty body: create a placeholder so LOCK can find the resource.
 			file_doc.insert()
 			frappe.db.commit()
 			return
@@ -335,19 +405,18 @@ class _WriteBuffer(io.RawIOBase):
 
 		config = frappe.conf.get("cloud_storage_settings", {})
 		if not config or config.get("use_local"):
+			# save_file_on_filesystem reads _content, not content.
+			file_doc._content = content
 			file_doc.save_file_on_filesystem()
+			file_doc.db_set("file_url", file_doc.file_url)
+			file_doc.db_set("file_size", len(content))
 		else:
-			upload_file(file_doc)
+			paths.upload_via_webdav(file_doc, content, file_doc.content_type)
 		frappe.db.commit()
 
 
 class _OverwriteBuffer(io.RawIOBase):
-	"""Accumulates a WebDAV PUT body for an existing resource; on close uploads to S3
-	and updates the Frappe File doc in place.
-
-	Used by FrappeFile.begin_write() for Finder's two-step upload (the second PUT
-	that follows the empty-placeholder PUT and the LOCK).
-	"""
+	"""Accumulates PUT body for an existing resource; on close re-uploads content in place."""
 
 	def __init__(self, doc_name: str) -> None:
 		self._buf = io.BytesIO()
@@ -368,35 +437,38 @@ class _OverwriteBuffer(io.RawIOBase):
 			super().close()
 
 	def _commit(self) -> None:
-		from frappe.core.doctype.file.utils import get_content_hash
-		from cloud_storage.cloud_storage.overrides.file import upload_file
-
 		content = self._buf.getvalue()
 		if not content:
 			return
 
 		content_hash = get_content_hash(content)
 		file_doc = frappe.get_doc("File", self._doc_name)
-		file_doc.content = content
-		file_doc.content_hash = content_hash
-		file_doc.file_size = len(content)
-		# content_type is not a stored field; set it so upload_file can read it.
 		mime, _ = mimetypes.guess_type(file_doc.file_name or "")
-		file_doc.content_type = mime or "application/octet-stream"
+		content_type = mime or "application/octet-stream"
+		file_doc.content_hash = content_hash
+		file_doc.content_type = content_type
 		file_doc.flags.cloud_storage = True
 
 		config = frappe.conf.get("cloud_storage_settings", {})
 		if not config or config.get("use_local"):
+			file_doc.content = content
+			file_doc.file_size = len(content)
+			# Clear the existing file_url (likely an S3 retrieve URL) so
+			# save_file_on_filesystem's validate doesn't reject it.
+			# Also assign _content — that's what the method actually reads.
+			file_doc.file_url = None
+			file_doc._content = content
 			file_doc.save_file_on_filesystem()
-		else:
-			upload_file(file_doc)
+			file_doc.db_set("file_url", file_doc.file_url)
 			file_doc.db_set("file_size", len(content))
 			file_doc.db_set("content_hash", content_hash)
+		else:
+			paths.upload_via_webdav(file_doc, content, content_type)
 		frappe.db.commit()
 
 
 class _MemoryBuffer(io.RawIOBase):
-	"""Write buffer that stashes content in _OS_FILE_STORE on close."""
+	"""Write buffer that stashes content in the Redis-backed OS metadata store."""
 
 	def __init__(self, path: str) -> None:
 		self._buf = io.BytesIO()
@@ -408,7 +480,7 @@ class _MemoryBuffer(io.RawIOBase):
 	def close(self) -> None:
 		if not self.closed:
 			super().close()
-			_OS_FILE_STORE[self._path] = self._buf.getvalue()
+			os_file_store.set(self._path, self._buf.getvalue())
 		else:
 			super().close()
 
@@ -421,7 +493,7 @@ class _MemoryFile(DAVNonCollection):
 		self.file_name = file_name
 
 	def _content(self) -> bytes:
-		return _OS_FILE_STORE.get(self.path, b"")
+		return os_file_store.get(self.path) or b""
 
 	def get_content_length(self) -> int:
 		return len(self._content())
@@ -453,13 +525,13 @@ class _MemoryFile(DAVNonCollection):
 	def get_content(self) -> io.RawIOBase:
 		return io.BytesIO(self._content())
 
-	def begin_write(self, content_type: Optional[str] = None):
+	def begin_write(self, content_type: str | None = None):
 		return _MemoryBuffer(self.path)
 
 	def delete(self):
-		_OS_FILE_STORE.pop(self.path, None)
+		os_file_store.delete(self.path)
 
-	def copy_move_single(self, dest_path: str, is_move: bool):
+	def copy_move_single(self, dest_path: str, *, is_move: bool):
 		raise DAVError(HTTP_FORBIDDEN)
 
 
@@ -502,13 +574,13 @@ class FrappeNewFile(DAVNonCollection):
 	def get_content(self):
 		raise DAVError(HTTP_NOT_FOUND)
 
-	def begin_write(self, content_type: Optional[str] = None):
+	def begin_write(self, content_type: str | None = None):
 		return _WriteBuffer(self.file_name, self.frappe_folder, content_type)
 
 	def delete(self):
 		raise DAVError(HTTP_FORBIDDEN)
 
-	def copy_move_single(self, dest_path: str, is_move: bool):
+	def copy_move_single(self, dest_path: str, *, is_move: bool):
 		raise DAVError(HTTP_FORBIDDEN)
 
 
@@ -526,17 +598,17 @@ class FrappeFile(DAVNonCollection):
 		mime, _ = mimetypes.guess_type(self.file_doc.file_name or "")
 		return mime or "application/octet-stream"
 
-	def get_last_modified(self) -> Optional[float]:
+	def get_last_modified(self) -> float | None:
 		if self.file_doc.modified:
 			return self.file_doc.modified.timestamp()
 		return None
 
-	def get_creation_date(self) -> Optional[float]:
+	def get_creation_date(self) -> float | None:
 		if self.file_doc.creation:
 			return self.file_doc.creation.timestamp()
 		return None
 
-	def get_etag(self) -> Optional[str]:
+	def get_etag(self) -> str | None:
 		return self.file_doc.content_hash or None
 
 	def get_display_name(self) -> str:
@@ -555,31 +627,29 @@ class FrappeFile(DAVNonCollection):
 		return False
 
 	def get_content(self) -> io.RawIOBase:
-		from cloud_storage.cloud_storage.overrides.file import get_cloud_storage_client
-
 		if self.file_doc.s3_key:
 			client = get_cloud_storage_client()
 			response = client.get_object(Bucket=client.bucket, Key=self.file_doc.s3_key)
 			return response["Body"]
 
 		if not self.file_doc.file_size:
-			# Empty placeholder created by Finder's two-step PUT (CL=0 then content).
-			# No s3_key and no on-disk file yet — return an empty stream.
+			# Empty placeholder from Finder's CL=0 PUT — no content yet.
 			return io.BytesIO(b"")
 
-		if self.file_doc.is_private:
-			file_path = frappe.get_site_path("private", "files", self.file_doc.file_name)
-		else:
-			file_path = frappe.get_site_path("public", "files", self.file_doc.file_name)
+		# Local mode: resolve path from file_url to handle any name sanitization.
+		file_doc = frappe.get_doc("File", self.file_doc.name)
+		file_path = file_doc.get_full_path()
 		return open(file_path, "rb")
 
-	def begin_write(self, content_type: Optional[str] = None):
+	def begin_write(self, content_type: str | None = None):
+		if not _can(self.file_doc.name, "write"):
+			raise DAVError(HTTP_FORBIDDEN)
 		return _OverwriteBuffer(self.file_doc.name)
 
 	def delete(self):
+		if not _can(self.file_doc.name, "delete"):
+			raise DAVError(HTTP_FORBIDDEN)
 		try:
-			# Clear associations first so the hook proceeds to _delete_file_on_disk.
-			frappe.db.delete("File Association", {"parent": self.file_doc.name})
 			frappe.delete_doc("File", self.file_doc.name)
 			frappe.db.commit()
 		except frappe.PermissionError:
@@ -587,81 +657,110 @@ class FrappeFile(DAVNonCollection):
 		except frappe.ValidationError as e:
 			raise DAVError(HTTP_FORBIDDEN, str(e))
 
-	def copy_move_single(self, dest_path: str, is_move: bool):
-		"""MOVE — rename and/or move this file (S3 object included)."""
-		if not is_move:
-			raise DAVError(HTTP_FORBIDDEN, "COPY is not supported")
+	def handle_copy(self, dest_path: str, *, depth_infinity: bool) -> bool:
+		raise DAVError(HTTP_FORBIDDEN)
 
+	def handle_move(self, dest_path: str) -> bool | list:
+		# Handle MOVE natively so wsgidav never reaches its fallback path that
+		# deletes an existing destination before calling move_recursive().
+		if not _can(self.file_doc.name, "write"):
+			raise DAVError(HTTP_FORBIDDEN)
+		new_folder, _ = _parse_dest(dest_path)
+		if not _can_write_folder(new_folder):
+			raise DAVError(HTTP_FORBIDDEN)
+		return self.move_recursive(dest_path)
+
+	def copy_move_single(self, dest_path: str, *, is_move: bool):
+		raise DAVError(HTTP_FORBIDDEN)
+
+	def move_recursive(self, dest_path: str):
+		if not _can(self.file_doc.name, "write"):
+			raise DAVError(HTTP_FORBIDDEN)
 		new_folder, new_name = _parse_dest(dest_path)
+		if not _can_write_folder(new_folder):
+			raise DAVError(HTTP_FORBIDDEN)
+		_logger.debug(
+			f"file move doc={self.file_doc.name} {self.file_doc.file_name!r} → "
+			f"{new_folder}/{new_name}"
+		)
 
-		# WebDAV semantics: MOVE overwrites the destination if it exists.
+		# MOVE overwrites the destination if it exists; let on_trash guards run.
 		existing = frappe.db.get_value(
 			"File",
-			{"folder": new_folder, "file_name": new_name, "is_folder": 0, "name": ["!=", self.file_doc.name]},
+			{
+				"folder": new_folder,
+				"file_name": new_name,
+				"is_folder": 0,
+				"name": ["!=", self.file_doc.name],
+			},
 			"name",
 		)
 		if existing:
 			try:
-				frappe.db.delete("File Association", {"parent": existing})
-				frappe.delete_doc("File", existing, ignore_permissions=False)
+				frappe.delete_doc("File", existing)
 			except frappe.PermissionError:
 				raise DAVError(HTTP_FORBIDDEN)
+			except frappe.ValidationError as e:
+				raise DAVError(HTTP_FORBIDDEN, str(e))
 
 		old_name = self.file_doc.file_name
 		old_s3_key = self.file_doc.s3_key
-		doc_name = self.file_doc.name
+		is_rename = bool(old_s3_key and old_name != new_name)
 
+		# S3 rename order: copy → commit DB → delete old key.
+		# If commit fails, orphan the new copy (harmless) — never lose the original.
+		client = None
+		new_key = None
 		try:
-			frappe.db.set_value("File", doc_name, "file_name", new_name)
-			frappe.db.set_value("File", doc_name, "folder", new_folder)
+			file_doc = frappe.get_doc("File", self.file_doc.name)
+			file_doc.file_name = new_name
+			file_doc.folder = new_folder
+			file_doc.flags.cloud_storage = True
 
-			# Legacy S3 paths include the file_name → renaming requires S3 rename
-			# (copy to new key + delete old). A folder-only move keeps the key.
-			if old_s3_key and old_name != new_name:
-				from cloud_storage.cloud_storage.overrides.file import (
-					FILE_URL,
-					get_cloud_storage_client,
-					get_file_path,
-				)
-
-				reloaded = frappe.get_doc("File", doc_name)
+			if is_rename:
 				client = get_cloud_storage_client()
-				new_key = get_file_path(reloaded, client.folder)
+				new_key = paths.get_webdav_path(file_doc, client.folder)
+				_logger.debug(f"file move S3 rename {old_s3_key!r} → {new_key!r}")
 				client.copy_object(
 					Bucket=client.bucket,
 					CopySource={"Bucket": client.bucket, "Key": old_s3_key},
 					Key=new_key,
 				)
-				client.delete_object(Bucket=client.bucket, Key=old_s3_key)
-				frappe.db.set_value("File", doc_name, "s3_key", new_key)
-				frappe.db.set_value("File", doc_name, "file_url", FILE_URL.format(path=new_key))
+				file_doc.s3_key = new_key
+				file_doc.file_url = FILE_URL.format(path=new_key)
 
+			file_doc.save()
 			frappe.db.commit()
-		except frappe.PermissionError:
-			raise DAVError(HTTP_FORBIDDEN)
-		except frappe.ValidationError as e:
-			raise DAVError(HTTP_FORBIDDEN, str(e))
+		except Exception as exc:
+			if is_rename and client is not None and new_key:
+				try:
+					client.delete_object(Bucket=client.bucket, Key=new_key)
+				except Exception:
+					_logger.warning(f"failed to clean up orphan S3 key {new_key!r}")
+			if isinstance(exc, frappe.PermissionError):
+				raise DAVError(HTTP_FORBIDDEN)
+			if isinstance(exc, frappe.ValidationError):
+				raise DAVError(HTTP_FORBIDDEN, str(exc))
+			raise
+		if is_rename and client is not None:
+			try:
+				client.delete_object(Bucket=client.bucket, Key=old_s3_key)
+			except Exception:
+				_logger.warning(f"failed to remove old S3 key {old_s3_key!r} after rename")
+		return []
 
 	def support_recursive_delete(self) -> bool:
 		return False
 
 	def support_recursive_move(self, dest_path: str) -> bool:
-		return False
+		return True
 
 
 class FrappeDAVProvider(DAVProvider):
 	"""Root WebDAV provider: maps URL paths to Frappe File doctypes."""
 
 	def get_resource_inst(self, path: str, environ: dict):
-		"""Return the DAVCollection or DAVNonCollection for the given path, or None."""
-		# wsgidav passes PATH_INFO (already /dav-stripped by our middleware) for
-		# the request resource, but the Destination header for MOVE/COPY arrives
-		# with the full URL path including /dav. Strip it here so both flows
-		# resolve to the same Frappe folder tree.
-		if path.startswith("/dav/"):
-			path = path[len("/dav"):]
-		elif path in ("/dav", "/dav/"):
-			path = "/"
+		path = _strip_dav_prefix(path)
 		norm = path.rstrip("/")
 
 		if not norm:
@@ -669,37 +768,53 @@ class FrappeDAVProvider(DAVProvider):
 
 		parts = [p for p in norm.split("/") if p]
 
-		# Walk intermediate folder segments to build the parent folder path
+		# get_all + _can(read): mirrors has_permission which is broader than
+		# the owner-only SQL filter in permission_query_conditions.
 		frappe_folder = "Home"
 		for part in parts[:-1]:
 			parent = frappe_folder
-			if not frappe.db.exists("File", {"folder": parent, "file_name": part, "is_folder": 1}):
+			match = frappe.get_all(
+				"File",
+				filters={"folder": parent, "file_name": part, "is_folder": 1},
+				pluck="name",
+				limit=1,
+			)
+			if not match:
+				return None
+			if not _can(match[0], "read"):
 				return None
 			frappe_folder = f"{parent}/{part}"
 
 		last = parts[-1]
 
-		# OS metadata files live only in _OS_FILE_STORE, not in Frappe.
 		if _is_os_metadata(last):
-			if path in _OS_FILE_STORE:
+			if os_file_store.contains(path):
 				return _MemoryFile(path, environ, last)
 			return None
 
-		# Last segment: folder?
-		if frappe.db.exists("File", {"folder": frappe_folder, "file_name": last, "is_folder": 1}):
+		folder_match = frappe.get_all(
+			"File",
+			filters={"folder": frappe_folder, "file_name": last, "is_folder": 1},
+			pluck="name",
+			limit=1,
+		)
+		if folder_match:
+			if not _can(folder_match[0], "read"):
+				return None
 			child_folder = f"{frappe_folder}/{last}"
 			canonical = path if path.endswith("/") else path + "/"
 			return FrappeCollection(canonical, environ, child_folder)
 
-		# Last segment: file?
-		file_doc = frappe.db.get_value(
+		file_rows = frappe.get_all(
 			"File",
-			{"folder": frappe_folder, "file_name": last, "is_folder": 0},
-			_FILE_FIELDS,
-			as_dict=True,
+			filters={"folder": frappe_folder, "file_name": last, "is_folder": 0},
+			fields=_FILE_FIELDS,
+			limit=1,
 		)
-		if file_doc:
-			return FrappeFile(path, environ, file_doc)
+		if file_rows:
+			if not _can(file_rows[0].name, "read"):
+				return None
+			return FrappeFile(path, environ, file_rows[0])
 
 		return None
 
@@ -708,11 +823,6 @@ class FrappeDAVProvider(DAVProvider):
 
 
 def frappe_folder_parent(frappe_folder: str) -> str:
-	"""Return the parent folder of a Frappe folder path.
-
-	Home/Attachments → Home
-	Home             → (empty string, root)
-	"""
 	if "/" not in frappe_folder:
 		return ""
 	return frappe_folder.rsplit("/", 1)[0]
