@@ -7,7 +7,6 @@ import mimetypes
 import uuid
 
 import frappe
-from frappe.core.doctype.file.utils import get_content_hash
 from frappe.model.rename_doc import rename_doc
 from wsgidav.dav_error import (
 	DAVError,
@@ -20,10 +19,18 @@ from wsgidav.dav_provider import DAVCollection, DAVNonCollection, DAVProvider
 from cloud_storage.cloud_storage.overrides.file import FILE_URL, get_cloud_storage_client
 from cloud_storage.cloud_storage.webdav import memory as os_file_store
 from cloud_storage.cloud_storage.webdav import paths
-
-
-def _folder_display_name(frappe_folder: str) -> str:
-	return frappe_folder.rsplit("/", 1)[-1]
+from cloud_storage.cloud_storage.webdav.buffers import (
+	MemoryBuffer as _MemoryBuffer,
+	OverwriteBuffer as _OverwriteBuffer,
+	WriteBuffer as _WriteBuffer,
+)
+from cloud_storage.cloud_storage.webdav.permissions import (
+	can as _can,
+	can_create as _can_create,
+	can_write_folder as _can_write_folder,
+	folder_display_name as _folder_display_name,
+	folder_parent as frappe_folder_parent,
+)
 
 
 _SYSTEM_FOLDERS = {"Home", "Home/Attachments"}
@@ -98,36 +105,6 @@ def _strip_dav_prefix(path: str) -> str:
 	if path in (_MOUNT_PREFIX, _MOUNT_PREFIX + "/"):
 		return "/"
 	return path
-
-
-def _can(target, ptype: str) -> bool:
-	"""Per-doc permission check. target must be a doc name or doc object, not a doctype string."""
-	return frappe.has_permission("File", doc=target, ptype=ptype, user=frappe.session.user)
-
-
-def _can_create() -> bool:
-	"""Doctype-level create check (no specific doc yet)."""
-	return frappe.has_permission("File", ptype="create", user=frappe.session.user)
-
-
-def _can_write_folder(frappe_folder: str) -> bool:
-	"""Check write permission on a Frappe folder path (e.g. 'Home/Docs').
-
-	Returns True for the virtual root 'Home' (no doc exists for it) so that
-	PUT/MKCOL/MOVE into the root collection aren't incorrectly blocked.
-	"""
-	if frappe_folder == "Home":
-		return True
-	parent = frappe_folder_parent(frappe_folder)
-	display = _folder_display_name(frappe_folder)
-	folder_name = frappe.db.get_value(
-		"File",
-		{"folder": parent, "file_name": display, "is_folder": 1},
-		"name",
-	)
-	if not folder_name:
-		return False
-	return _can(folder_name, "write")
 
 
 def _parse_dest(dest_path: str) -> tuple[str, str]:
@@ -397,132 +374,6 @@ _FILE_FIELDS = [
 	"is_private",
 	"file_url",
 ]
-
-
-class _WriteBuffer(io.RawIOBase):
-	"""Accumulates PUT body; on close inserts a File doc and uploads content.
-
-	Finder's two-step upload sends PUT Content-Length:0 first (to claim the
-	path), then LOCK, then a second PUT with real content. An empty body
-	creates a placeholder doc so the LOCK handler can find the resource.
-	"""
-
-	def __init__(self, file_name: str, frappe_folder: str, content_type: str | None) -> None:
-		self._buf = io.BytesIO()
-		self._file_name = file_name
-		self._frappe_folder = frappe_folder
-		self._content_type = content_type
-
-	def write(self, data: bytes) -> int:
-		return self._buf.write(data)
-
-	def close(self) -> None:
-		if not self.closed:
-			super().close()
-			try:
-				self._commit()
-			except Exception:
-				frappe.log_error("WebDAV upload error", frappe.get_traceback())
-				raise
-
-	def _commit(self) -> None:
-		content = self._buf.getvalue()
-
-		file_doc = frappe.new_doc("File")
-		file_doc.file_name = self._file_name
-		file_doc.folder = self._frappe_folder
-		# Private by default: non-private files skip expiration + perm checks in
-		# get_presigned_url, undermining the per-user WebDAV perm model.
-		file_doc.is_private = 1
-		file_doc.flags.cloud_storage = True
-
-		if not content:
-			file_doc.insert()
-			frappe.db.commit()
-			return
-
-		file_doc.content = content
-		file_doc.content_hash = get_content_hash(content)
-		mime, _ = mimetypes.guess_type(self._file_name or "")
-		file_doc.content_type = mime or "application/octet-stream"
-		file_doc.insert()
-
-		config = frappe.conf.get("cloud_storage_settings", {})
-		if not config or config.get("use_local"):
-			# save_file_on_filesystem reads _content, not content.
-			file_doc._content = content
-			file_doc.save_file_on_filesystem()
-			file_doc.db_set("file_url", file_doc.file_url)
-			file_doc.db_set("file_size", len(content))
-		else:
-			paths.upload_via_webdav(file_doc, content, file_doc.content_type)
-		frappe.db.commit()
-
-
-class _OverwriteBuffer(io.RawIOBase):
-	"""Accumulates PUT body for an existing resource; on close re-uploads content in place."""
-
-	def __init__(self, doc_name: str) -> None:
-		self._buf = io.BytesIO()
-		self._doc_name = doc_name
-
-	def write(self, data: bytes) -> int:
-		return self._buf.write(data)
-
-	def close(self) -> None:
-		if not self.closed:
-			super().close()
-			try:
-				self._commit()
-			except Exception:
-				frappe.log_error("WebDAV overwrite error", frappe.get_traceback())
-				raise
-
-	def _commit(self) -> None:
-		content = self._buf.getvalue()
-		if not content:
-			return
-
-		content_hash = get_content_hash(content)
-		file_doc = frappe.get_doc("File", self._doc_name)
-		mime, _ = mimetypes.guess_type(file_doc.file_name or "")
-		content_type = mime or "application/octet-stream"
-		file_doc.content_hash = content_hash
-		file_doc.content_type = content_type
-		file_doc.flags.cloud_storage = True
-
-		config = frappe.conf.get("cloud_storage_settings", {})
-		if not config or config.get("use_local"):
-			file_doc.content = content
-			file_doc.file_size = len(content)
-			# Clear the existing file_url (likely an S3 retrieve URL) so
-			# save_file_on_filesystem's validate doesn't reject it.
-			# Also assign _content — that's what the method actually reads.
-			file_doc.file_url = None
-			file_doc._content = content
-			file_doc.save_file_on_filesystem()
-			file_doc.db_set("file_url", file_doc.file_url)
-			file_doc.db_set("file_size", len(content))
-			file_doc.db_set("content_hash", content_hash)
-		else:
-			paths.upload_via_webdav(file_doc, content, content_type)
-		frappe.db.commit()
-
-
-class _MemoryBuffer(io.RawIOBase):
-	"""Write buffer that stashes content in the Redis-backed OS metadata store."""
-
-	def __init__(self, path: str) -> None:
-		self._buf = io.BytesIO()
-		self._path = path
-
-	def write(self, data: bytes) -> int:
-		return self._buf.write(data)
-
-	def close(self) -> None:
-		if not self.closed:
-			super().close()
-			os_file_store.set(self._path, self._buf.getvalue())
 
 
 class _MemoryFile(DAVNonCollection):
@@ -866,9 +717,3 @@ class FrappeDAVProvider(DAVProvider):
 
 	def is_readonly(self) -> bool:
 		return False
-
-
-def frappe_folder_parent(frappe_folder: str) -> str:
-	if "/" not in frappe_folder:
-		return ""
-	return frappe_folder.rsplit("/", 1)[0]
