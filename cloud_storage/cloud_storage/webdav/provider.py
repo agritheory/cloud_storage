@@ -4,6 +4,7 @@
 
 import io
 import mimetypes
+import uuid
 
 import frappe
 from frappe.core.doctype.file.utils import get_content_hash
@@ -43,6 +44,51 @@ def _is_hidden_from_listing(name: str) -> bool:
 
 _MOUNT_PREFIX = "/dav"
 _logger = frappe.logger("webdav", allow_site=False)
+
+
+def _is_cloud_storage_enabled() -> bool:
+	config = frappe.conf.get("cloud_storage_settings", {})
+	return bool(config and not config.get("use_local"))
+
+
+def _backup_s3_object(key: str) -> tuple[object, str, str] | None:
+	if not key or not _is_cloud_storage_enabled():
+		return None
+	client = get_cloud_storage_client()
+	backup_key = f"{key}.webdav-overwrite-backup-{uuid.uuid4().hex}"
+	client.copy_object(
+		Bucket=client.bucket,
+		CopySource={"Bucket": client.bucket, "Key": key},
+		Key=backup_key,
+	)
+	return client, key, backup_key
+
+
+def _delete_s3_backup(backup: tuple[object, str, str] | None) -> None:
+	if not backup:
+		return
+	client, _, backup_key = backup
+	try:
+		client.delete_object(Bucket=client.bucket, Key=backup_key)
+	except Exception:
+		_logger.warning(f"failed to remove WebDAV overwrite backup {backup_key!r}")
+
+
+def _restore_s3_backup(backup: tuple[object, str, str] | None) -> None:
+	if not backup:
+		return
+	client, original_key, backup_key = backup
+	try:
+		client.copy_object(
+			Bucket=client.bucket,
+			CopySource={"Bucket": client.bucket, "Key": backup_key},
+			Key=original_key,
+		)
+	except Exception:
+		_logger.warning(f"failed to restore WebDAV overwrite backup {backup_key!r}")
+		raise
+	finally:
+		_delete_s3_backup(backup)
 
 
 def _strip_dav_prefix(path: str) -> str:
@@ -678,7 +724,9 @@ class FrappeFile(DAVNonCollection):
 			f"{new_folder}/{new_name}"
 		)
 
-		# MOVE overwrites the destination if it exists; let on_trash guards run.
+		# MOVE overwrites the destination if it exists. If the destination has
+		# an S3 object, keep a temporary copy until the DB move commits: Frappe's
+		# on_trash hook deletes S3 immediately, while DB rollback cannot restore it.
 		existing = frappe.db.get_value(
 			"File",
 			{
@@ -687,25 +735,26 @@ class FrappeFile(DAVNonCollection):
 				"is_folder": 0,
 				"name": ["!=", self.file_doc.name],
 			},
-			"name",
+			["name", "s3_key"],
+			as_dict=True,
 		)
-		if existing:
-			try:
-				frappe.delete_doc("File", existing)
-			except frappe.PermissionError:
-				raise DAVError(HTTP_FORBIDDEN)
-			except frappe.ValidationError as e:
-				raise DAVError(HTTP_FORBIDDEN, str(e))
 
 		old_name = self.file_doc.file_name
 		old_s3_key = self.file_doc.s3_key
 		is_rename = bool(old_s3_key and old_name != new_name)
 
 		# S3 rename order: copy → commit DB → delete old key.
-		# If commit fails, orphan the new copy (harmless) — never lose the original.
+		# If commit fails, clean up the new source copy and restore overwritten S3.
 		client = None
 		new_key = None
+		overwrite_backup = None
+		savepoint = "webdav_file_move"
+		frappe.db.savepoint(savepoint)
 		try:
+			if existing:
+				overwrite_backup = _backup_s3_object(existing.s3_key)
+				frappe.delete_doc("File", existing.name)
+
 			file_doc = frappe.get_doc("File", self.file_doc.name)
 			file_doc.file_name = new_name
 			file_doc.folder = new_folder
@@ -725,12 +774,15 @@ class FrappeFile(DAVNonCollection):
 
 			file_doc.save()
 			frappe.db.commit()
+			_delete_s3_backup(overwrite_backup)
 		except Exception as exc:
+			frappe.db.rollback(save_point=savepoint)
 			if is_rename and client is not None and new_key:
 				try:
 					client.delete_object(Bucket=client.bucket, Key=new_key)
 				except Exception:
 					_logger.warning(f"failed to clean up orphan S3 key {new_key!r}")
+			_restore_s3_backup(overwrite_backup)
 			if isinstance(exc, frappe.PermissionError):
 				raise DAVError(HTTP_FORBIDDEN)
 			if isinstance(exc, frappe.ValidationError):
