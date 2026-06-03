@@ -94,54 +94,7 @@ def migrate_cloud_storage_paths(context, site=None, dry_run=False, limit=None, b
 		frappe.destroy()
 
 
-@click.command("webdav-server")
-@click.option("--site", help="Site name")
-@click.option("--port", type=int, default=8010, help="Port to listen on (default: 8010)")
-@click.option("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
-@pass_context
-def webdav_server(context, site=None, port=8010, host="0.0.0.0"):
-	"""
-	Start a WebDAV server for rclone / desktop client integration.
-
-	Files are served read-only from the Frappe File tree. Authenticate with
-	a Frappe API key and secret (Settings → My Account → API Access).
-
-	Examples:
-	    bench --site mysite.localhost webdav-server
-	    bench --site mysite.localhost webdav-server --port 8010
-
-	rclone config (add to ~/.config/rclone/rclone.conf):
-	    [frappe]
-	    type = webdav
-	    url = http://localhost:8010/
-	    vendor = other
-	    user = <api_key>
-	    pass = <api_secret (run: rclone obscure <secret>)>
-	"""
-	from wsgiref.simple_server import make_server
-
-	from cloud_storage.cloud_storage.webdav.app import create_webdav_app
-
-	site = site or context.sites[0]
-	app = create_webdav_app(site=site)
-
-	print(f"WebDAV server running on http://{host}:{port}/")
-	print(f"Site: {site}")
-	print()
-	print("rclone config snippet:")
-	print("  [frappe]")
-	print("  type = webdav")
-	print(f"  url = http://localhost:{port}/")
-	print("  vendor = other")
-	print("  user = <your Frappe api_key>")
-	print("  pass = <rclone obscure <your api_secret>>")
-
-	httpd = make_server(host, port, app)
-	httpd.serve_forever()
-
-
 commands = [
 	migrate_files_to_cloud_storage,
 	migrate_cloud_storage_paths,
-	webdav_server,
 ]
