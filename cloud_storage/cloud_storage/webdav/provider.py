@@ -422,8 +422,19 @@ class _MemoryFile(DAVNonCollection):
 	def delete(self):
 		os_file_store.delete(self.path)
 
+	def handle_move(self, dest_path: str) -> bool:
+		dest = _strip_dav_prefix(dest_path).rstrip("/")
+		if not dest:
+			raise DAVError(HTTP_FORBIDDEN, "invalid destination")
+		os_file_store.set(dest, self._content())
+		os_file_store.delete(self.path)
+		return True
+
 	def copy_move_single(self, dest_path: str, *, is_move: bool):
 		raise DAVError(HTTP_FORBIDDEN)
+
+	def support_recursive_move(self, dest_path: str) -> bool:
+		return False
 
 
 class FrappeNewFile(DAVNonCollection):
@@ -574,9 +585,8 @@ class FrappeFile(DAVNonCollection):
 			f"file move doc={self.file_doc.name} {self.file_doc.file_name!r} → " f"{new_folder}/{new_name}"
 		)
 
-		# MOVE overwrites the destination if it exists. If the destination has
-		# an S3 object, keep a temporary copy until the DB move commits: Frappe's
-		# on_trash hook deletes S3 immediately, while DB rollback cannot restore it.
+		# MOVE overwrites the destination if it exists. Preserve the destination
+		# File doc so Cloud Storage's File Version table keeps its history.
 		existing = frappe.db.get_value(
 			"File",
 			{
@@ -589,6 +599,11 @@ class FrappeFile(DAVNonCollection):
 			as_dict=True,
 		)
 
+		if existing:
+			if not _can(existing.name, "write"):
+				raise DAVError(HTTP_FORBIDDEN)
+			return self._replace_existing_destination(existing.name, existing.s3_key)
+
 		old_name = self.file_doc.file_name
 		old_s3_key = self.file_doc.s3_key
 		is_rename = bool(old_s3_key and old_name != new_name)
@@ -597,14 +612,9 @@ class FrappeFile(DAVNonCollection):
 		# If commit fails, clean up the new source copy and restore overwritten S3.
 		client = None
 		new_key = None
-		overwrite_backup = None
 		savepoint = "webdav_file_move"
 		frappe.db.savepoint(savepoint)
 		try:
-			if existing:
-				overwrite_backup = _backup_s3_object(existing.s3_key)
-				frappe.delete_doc("File", existing.name)
-
 			file_doc = frappe.get_doc("File", self.file_doc.name)
 			file_doc.file_name = new_name
 			file_doc.folder = new_folder
@@ -624,7 +634,6 @@ class FrappeFile(DAVNonCollection):
 
 			file_doc.save()
 			frappe.db.commit()
-			_delete_s3_backup(overwrite_backup)
 		except Exception as exc:
 			frappe.db.rollback(save_point=savepoint)
 			if is_rename and client is not None and new_key:
@@ -632,7 +641,6 @@ class FrappeFile(DAVNonCollection):
 					client.delete_object(Bucket=client.bucket, Key=new_key)
 				except Exception:
 					_logger.warning(f"failed to clean up orphan S3 key {new_key!r}")
-			_restore_s3_backup(overwrite_backup)
 			if isinstance(exc, frappe.PermissionError):
 				raise DAVError(HTTP_FORBIDDEN)
 			if isinstance(exc, frappe.ValidationError):
@@ -644,6 +652,33 @@ class FrappeFile(DAVNonCollection):
 			except Exception:
 				_logger.warning(f"failed to remove old S3 key {old_s3_key!r} after rename")
 		return []
+
+	def _replace_existing_destination(self, existing_name: str, existing_s3_key: str | None):
+		savepoint = "webdav_file_replace"
+		overwrite_backup = None
+		source_backup = None
+		frappe.db.savepoint(savepoint)
+		try:
+			source_doc = frappe.get_doc("File", self.file_doc.name)
+			existing_doc = frappe.get_doc("File", existing_name)
+			overwrite_backup = _backup_s3_object(existing_s3_key)
+			source_backup = _backup_s3_object(source_doc.s3_key)
+
+			paths.replace_existing_via_webdav(existing_doc, source_doc)
+			frappe.delete_doc("File", source_doc.name)
+			frappe.db.commit()
+			_delete_s3_backup(overwrite_backup)
+			_delete_s3_backup(source_backup)
+			return []
+		except Exception as exc:
+			frappe.db.rollback(save_point=savepoint)
+			_restore_s3_backup(overwrite_backup)
+			_restore_s3_backup(source_backup)
+			if isinstance(exc, frappe.PermissionError):
+				raise DAVError(HTTP_FORBIDDEN)
+			if isinstance(exc, frappe.ValidationError):
+				raise DAVError(HTTP_FORBIDDEN, str(exc))
+			raise
 
 	def support_recursive_delete(self) -> bool:
 		return False
