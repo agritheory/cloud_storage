@@ -38,7 +38,7 @@ def _is_os_metadata(name: str) -> bool:
 
 
 def _is_hidden_from_listing(name: str) -> bool:
-	return name.startswith(_OS_PREFIXES) or name in _OS_FILES or name.startswith(_TEMP_PREFIXES)
+	return _is_os_metadata(name) or name.startswith(_TEMP_PREFIXES)
 
 
 _MOUNT_PREFIX = "/dav"
@@ -290,17 +290,17 @@ class FrappeCollection(DAVCollection):
 		frappe.db.savepoint(savepoint)
 		try:
 			# Frappe stores folder path in both `name` (PK) and display fields
-			# (`file_name`, `folder`). rename_doc updates the PK but leaves
-			# display fields stale — update them first.
+			# (`file_name`, `folder`). The WebDAV path may differ from the
+			# current PK after an ancestor move, so update/rename by folder_name.
 			if new_name != display:
-				frappe.db.set_value("File", self.frappe_folder, "file_name", new_name)
+				frappe.db.set_value("File", folder_name, "file_name", new_name)
 			if new_parent != parent:
-				frappe.db.set_value("File", self.frappe_folder, "folder", new_parent)
+				frappe.db.set_value("File", folder_name, "folder", new_parent)
 
-			if new_frappe_folder != self.frappe_folder:
+			if new_frappe_folder != folder_name:
 				rename_doc(
 					"File",
-					self.frappe_folder,
+					folder_name,
 					new_frappe_folder,
 					merge=False,
 					force=True,
@@ -308,8 +308,8 @@ class FrappeCollection(DAVCollection):
 					validate=False,
 				)
 
-			# Reparent descendants (rename_doc only updates direct children).
-			# get_all intentional: descendants must move atomically with parent.
+			# Reparent descendants by current folder path. Their File.name may
+			# still be an old PK, but their `folder` value follows the visible path.
 			old = self.frappe_folder
 			affected = frappe.get_all(
 				"File",
@@ -378,8 +378,6 @@ class _WriteBuffer(io.RawIOBase):
 			except Exception:
 				frappe.log_error("WebDAV upload error", frappe.get_traceback())
 				raise
-		else:
-			super().close()
 
 	def _commit(self) -> None:
 		content = self._buf.getvalue()
@@ -433,8 +431,6 @@ class _OverwriteBuffer(io.RawIOBase):
 			except Exception:
 				frappe.log_error("WebDAV overwrite error", frappe.get_traceback())
 				raise
-		else:
-			super().close()
 
 	def _commit(self) -> None:
 		content = self._buf.getvalue()
@@ -481,8 +477,6 @@ class _MemoryBuffer(io.RawIOBase):
 		if not self.closed:
 			super().close()
 			os_file_store.set(self._path, self._buf.getvalue())
-		else:
-			super().close()
 
 
 class _MemoryFile(DAVNonCollection):

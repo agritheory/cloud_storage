@@ -108,10 +108,9 @@ def handle_webdav_methods() -> None:
 	if not request or not request.path.startswith(_MOUNT_PREFIX):
 		return
 	if request.method in _UNSUPPORTED_WEBDAV_METHODS:
-		if request.method != "OPTIONS":
-			validate_auth()
-			if _needs_auth_challenge(request):
-				raise WebdavResponse(_auth_challenge())
+		validate_auth()
+		if _needs_auth_challenge(request):
+			raise WebdavResponse(_auth_challenge())
 		raise WebdavResponse(_method_not_allowed(request.method))
 	if request.method not in _WEBDAV_METHODS:
 		return
