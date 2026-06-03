@@ -1,10 +1,13 @@
 # Copyright (c) 2026, AgriTheory and contributors
 # For license information, please see license.txt
-# WebDAV-specific S3 path strategy and upload pipeline.
+# WebDAV-specific S3 path strategy and upload/version pipeline.
+
+import mimetypes
 
 import frappe
 from boto3.exceptions import S3UploadFailedError
 from frappe.core.doctype.file.file import File
+from frappe.core.doctype.file.utils import get_content_hash
 
 from cloud_storage.cloud_storage.overrides.file import (
 	FILE_URL,
@@ -64,3 +67,74 @@ def upload_via_webdav(file_doc: File, content: bytes, content_type: str) -> File
 	if file_doc.content_hash:
 		file_doc.db_set("content_hash", file_doc.content_hash)
 	return file_doc
+
+
+def _content_type_for(file_doc: File, fallback_name: str | None = None) -> str:
+	return (
+		getattr(file_doc, "content_type", None)
+		or mimetypes.guess_type(fallback_name or file_doc.file_name or "")[0]
+		or "application/octet-stream"
+	)
+
+
+def replace_existing_via_webdav(existing_doc: File, source_doc: File) -> File:
+	"""Replace an existing WebDAV File doc with source content, preserving versions."""
+	content_type = _content_type_for(source_doc, existing_doc.file_name)
+	source_size = source_doc.file_size or 0
+	source_hash = source_doc.content_hash
+
+	existing_doc.flags.cloud_storage = True
+	existing_doc.content_type = content_type
+	existing_doc.file_size = source_size
+	if source_hash:
+		existing_doc.content_hash = source_hash
+
+	config = frappe.conf.get("cloud_storage_settings", {})
+	if not config or config.get("use_local"):
+		content = source_doc.get_content()
+		if isinstance(content, str):
+			content = content.encode()
+		source_hash = source_hash or get_content_hash(content)
+
+		existing_doc.content = content
+		existing_doc.content_hash = source_hash
+		existing_doc.file_size = len(content)
+		# Clear the existing S3 URL so the local filesystem writer can validate.
+		existing_doc.file_url = None
+		existing_doc._content = content
+		existing_doc.save_file_on_filesystem()
+		existing_doc.db_set("file_url", existing_doc.file_url)
+		existing_doc.db_set("file_size", len(content))
+		existing_doc.db_set("content_hash", source_hash)
+		existing_doc.add_file_version(source_hash)
+		return existing_doc
+
+	client = get_cloud_storage_client()
+	dest_path = get_webdav_path(existing_doc, client.folder)
+	source_key = source_doc.s3_key
+	if not source_key:
+		frappe.throw("Source WebDAV file has no cloud storage key.")
+
+	try:
+		response = client.copy_object(
+			Bucket=client.bucket,
+			CopySource={"Bucket": client.bucket, "Key": source_key},
+			Key=dest_path,
+			ContentType=content_type,
+			MetadataDirective="REPLACE",
+		)
+		version_id = response.get("VersionId") or source_hash
+	except S3UploadFailedError:
+		frappe.throw("File Upload Failed. Please try again.")
+	except Exception as e:
+		frappe.log_error("WebDAV replace error", e)
+		raise
+
+	existing_doc.db_set("file_url", FILE_URL.format(path=dest_path))
+	existing_doc.db_set("s3_key", dest_path)
+	existing_doc.db_set("file_size", source_size)
+	if source_hash:
+		existing_doc.db_set("content_hash", source_hash)
+	if version_id:
+		existing_doc.add_file_version(version_id)
+	return existing_doc
