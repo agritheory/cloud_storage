@@ -366,6 +366,7 @@ class FrappeCollection(DAVCollection):
 _FILE_FIELDS = [
 	"name",
 	"file_name",
+	"folder",
 	"file_size",
 	"content_hash",
 	"modified",
@@ -604,6 +605,17 @@ class FrappeFile(DAVNonCollection):
 				raise DAVError(HTTP_FORBIDDEN)
 			return self._replace_existing_destination(existing.name, existing.s3_key)
 
+		displaced = self._find_displaced_atomic_save_destination(new_folder, new_name)
+		if displaced:
+			if not _can(displaced.name, "write"):
+				raise DAVError(HTTP_FORBIDDEN)
+			return self._replace_existing_destination(
+				displaced.name,
+				displaced.s3_key,
+				final_folder=new_folder,
+				final_name=new_name,
+			)
+
 		old_name = self.file_doc.file_name
 		old_s3_key = self.file_doc.s3_key
 		is_rename = bool(old_s3_key and old_name != new_name)
@@ -653,7 +665,40 @@ class FrappeFile(DAVNonCollection):
 				_logger.warning(f"failed to remove old S3 key {old_s3_key!r} after rename")
 		return []
 
-	def _replace_existing_destination(self, existing_name: str, existing_s3_key: str | None):
+	def _find_displaced_atomic_save_destination(self, new_folder: str, new_name: str):
+		source_folder = self.file_doc.get("folder")
+		if self.file_doc.file_name != new_name or not source_folder:
+			return None
+		if frappe_folder_parent(source_folder) != new_folder:
+			return None
+
+		source_folder_name = _folder_display_name(source_folder)
+		if not source_folder_name.startswith(f"{new_name}.sb-"):
+			return None
+
+		prefix = source_folder_name.rsplit("-", 1)[0] + "-"
+		rows = frappe.get_all(
+			"File",
+			filters={"folder": new_folder, "is_folder": 0, "name": ["!=", self.file_doc.name]},
+			fields=["name", "file_name", "s3_key", "modified"],
+			order_by="modified desc",
+		)
+		for row in rows:
+			if row.file_name.startswith(prefix):
+				_logger.debug(
+					f"atomic save replace final={new_folder}/{new_name!r} displaced={row.name!r}"
+				)
+				return row
+		return None
+
+	def _replace_existing_destination(
+		self,
+		existing_name: str,
+		existing_s3_key: str | None,
+		*,
+		final_folder: str | None = None,
+		final_name: str | None = None,
+	):
 		savepoint = "webdav_file_replace"
 		overwrite_backup = None
 		source_backup = None
@@ -664,9 +709,24 @@ class FrappeFile(DAVNonCollection):
 			overwrite_backup = _backup_s3_object(existing_s3_key)
 			source_backup = _backup_s3_object(source_doc.s3_key)
 
+			if final_folder is not None:
+				existing_doc.folder = final_folder
+			if final_name is not None:
+				existing_doc.file_name = final_name
+			if final_folder is not None or final_name is not None:
+				existing_doc.flags.cloud_storage = True
+				existing_doc.save()
+
 			paths.replace_existing_via_webdav(existing_doc, source_doc)
 			frappe.delete_doc("File", source_doc.name)
 			frappe.db.commit()
+			current_s3_key = frappe.db.get_value("File", existing_doc.name, "s3_key")
+			if existing_s3_key and existing_s3_key != current_s3_key:
+				client = get_cloud_storage_client()
+				try:
+					client.delete_object(Bucket=client.bucket, Key=existing_s3_key)
+				except Exception:
+					_logger.warning(f"failed to remove old S3 key {existing_s3_key!r} after replace")
 			_delete_s3_backup(overwrite_backup)
 			_delete_s3_backup(source_backup)
 			return []
