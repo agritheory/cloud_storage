@@ -9,8 +9,8 @@ For license information, please see license.txt-->
 
 
 Cloud Storage exposes the Frappe File list as a WebDAV endpoint at `/dav/`.
-Users can connect to it from desktop clients such as macOS Finder, Windows
-Explorer or rclone.
+Users can connect to it from desktop clients such as macOS Finder, Windows with
+rclone, or any compatible WebDAV client.
 
 Files remain stored in the configured cloud storage provider. Frappe remains the
 source of truth for file metadata, folders, and permissions.
@@ -49,23 +49,39 @@ http://your-site.localhost:8000/dav/
 3. Enter your WebDAV URL.
 4. When prompted, use your Frappe API key as the username and your API secret as the password.
 
-## Windows Explorer
+## Windows
 
-1. Open **This PC**.
-2. Select **Computer > Map network drive**.
-3. Enter your WebDAV URL.
-4. Select **Connect using different credentials**.
-5. Use your Frappe API key as the username and your API secret as the password.
+Windows users can mount the WebDAV endpoint with rclone.
+
+1. Download and install rclone from [rclone.org/downloads](https://rclone.org/downloads/).
+2. Download and install WinFsp from [winfsp.dev/rel](https://winfsp.dev/rel/).
+3. Configure a WebDAV remote with `rclone config`.
+4. Mount the remote with `rclone mount`.
 
 ## rclone
 
-Add a WebDAV remote to your rclone configuration:
-
-Use `rclone obscure` to store the API secret:
+Create a WebDAV remote with rclone's interactive setup:
 
 ```shell
-rclone obscure "your-api-secret"
+rclone config
 ```
+
+Suggested setup:
+
+```shell
+n) New remote
+name> cloud_storage
+Storage> webdav
+url> https://your-site.example.com/dav/
+vendor> other
+user> your-api-key
+pass> your-api-secret
+```
+
+Use your Frappe API key as the username and your API secret as the password.
+rclone stores the password in its configuration using its own obscured format.
+
+The resulting configuration will look similar to this:
 
 ```ini
 [cloud_storage]
@@ -82,6 +98,12 @@ Example commands:
 rclone ls cloud_storage:
 rclone copy ./report.pdf cloud_storage:Reports/report.pdf
 rclone copy cloud_storage:Reports/report.pdf ./report.pdf
+```
+
+On Windows, mount the remote as a drive letter:
+
+```shell
+rclone mount cloud_storage: X:
 ```
 
 ## Permissions
