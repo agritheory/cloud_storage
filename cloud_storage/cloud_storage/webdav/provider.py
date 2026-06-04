@@ -5,6 +5,7 @@
 import io
 import mimetypes
 import uuid
+from typing import Any
 from urllib.parse import unquote
 
 import frappe
@@ -67,7 +68,7 @@ def _detach_local_file_before_delete(file_doc) -> None:
 	file_doc.db_set("file_url", None)
 
 
-def _backup_s3_object(key: str) -> tuple[object, str, str] | None:
+def _backup_s3_object(key: str | None) -> tuple[Any, str, str] | None:
 	if not key or not _is_cloud_storage_enabled():
 		return None
 	client = get_cloud_storage_client()
@@ -80,7 +81,7 @@ def _backup_s3_object(key: str) -> tuple[object, str, str] | None:
 	return client, key, backup_key
 
 
-def _delete_s3_backup(backup: tuple[object, str, str] | None) -> None:
+def _delete_s3_backup(backup: tuple[Any, str, str] | None) -> None:
 	if not backup:
 		return
 	client, _, backup_key = backup
@@ -90,7 +91,7 @@ def _delete_s3_backup(backup: tuple[object, str, str] | None) -> None:
 		_logger.warning(f"failed to remove WebDAV overwrite backup {backup_key!r}")
 
 
-def _restore_s3_backup(backup: tuple[object, str, str] | None) -> None:
+def _restore_s3_backup(backup: tuple[Any, str, str] | None) -> None:
 	if not backup:
 		return
 	client, original_key, backup_key = backup
@@ -137,9 +138,9 @@ class FrappeCollection(DAVCollection):
 	def __init__(self, path: str, environ: dict, frappe_folder: str) -> None:
 		super().__init__(path, environ)
 		self.frappe_folder = frappe_folder
-		self._meta: dict | None = None
+		self._meta: Any | None = None
 
-	def _get_meta(self) -> dict | None:
+	def _get_meta(self) -> Any | None:
 		if self._meta is None:
 			parent = frappe_folder_parent(self.frappe_folder)
 			if not parent:
@@ -427,7 +428,7 @@ class _MemoryFile(DAVNonCollection):
 	def support_modified(self) -> bool:
 		return False
 
-	def get_content(self) -> io.RawIOBase:
+	def get_content(self) -> Any:
 		return io.BytesIO(self._content())
 
 	def begin_write(self, content_type: str | None = None):
@@ -503,7 +504,7 @@ class FrappeNewFile(DAVNonCollection):
 class FrappeFile(DAVNonCollection):
 	"""A Frappe File record exposed as a WebDAV resource."""
 
-	def __init__(self, path: str, environ: dict, file_doc: dict) -> None:
+	def __init__(self, path: str, environ: dict, file_doc: Any) -> None:
 		super().__init__(path, environ)
 		self.file_doc = file_doc
 
@@ -542,7 +543,7 @@ class FrappeFile(DAVNonCollection):
 	def support_ranges(self) -> bool:
 		return False
 
-	def get_content(self) -> io.RawIOBase:
+	def get_content(self) -> Any:
 		if self.file_doc.s3_key:
 			client = get_cloud_storage_client()
 			response = client.get_object(Bucket=client.bucket, Key=self.file_doc.s3_key)

@@ -66,8 +66,9 @@ class RedisLockStorage(LockStorageDict):
 		return f"RedisLockStorage(namespace={_NAMESPACE!r})"
 
 	def open(self) -> None:
-		assert self._dict is None
-		self._dict = _RedisDict(_NAMESPACE)
+		assert self._dict is None  # type: ignore[attr-defined,has-type]
+		self._dict = _RedisDict(_NAMESPACE)  # type: ignore[attr-defined]
 
 	def close(self) -> None:
-		self._dict = None  # don't wipe Redis — other workers may still be using it
+		# don't wipe Redis — other workers may still be using it
+		self._dict = None  # type: ignore[assignment]

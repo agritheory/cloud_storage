@@ -197,8 +197,8 @@ def _invoke_webdav(request) -> Response:
 	environ["CONTENT_LENGTH"] = str(len(body))
 	environ.pop("HTTP_TRANSFER_ENCODING", None)
 
-	status_holder = []
-	headers_holder = []
+	status_holder: list[str] = []
+	headers_holder: list[tuple[str, str]] = []
 
 	def start_response(status, headers, exc_info=None):
 		status_holder.append(status)
@@ -213,7 +213,7 @@ def _invoke_webdav(request) -> Response:
 		body_iter = app(environ, start_response)
 		out = b"".join(body_iter)
 	finally:
-		if hasattr(body_iter, "close"):
+		if body_iter is not None and hasattr(body_iter, "close"):
 			body_iter.close()
 
 	status_code = int(status_holder[0].split(" ", 1)[0]) if status_holder else 500

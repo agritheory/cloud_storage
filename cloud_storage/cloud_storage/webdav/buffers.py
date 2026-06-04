@@ -4,6 +4,7 @@
 
 import io
 import mimetypes
+from typing import Any
 
 import frappe
 from frappe.core.doctype.file.utils import get_content_hash
@@ -26,7 +27,7 @@ class WriteBuffer(io.RawIOBase):
 		self._frappe_folder = frappe_folder
 		self._content_type = content_type
 
-	def write(self, data: bytes) -> int:
+	def write(self, data: Any) -> int:
 		return self._buf.write(data)
 
 	def close(self) -> None:
@@ -79,7 +80,7 @@ class OverwriteBuffer(io.RawIOBase):
 		self._buf = io.BytesIO()
 		self._doc_name = doc_name
 
-	def write(self, data: bytes) -> int:
+	def write(self, data: Any) -> int:
 		return self._buf.write(data)
 
 	def close(self) -> None:
@@ -129,7 +130,7 @@ class MemoryBuffer(io.RawIOBase):
 		self._buf = io.BytesIO()
 		self._path = path
 
-	def write(self, data: bytes) -> int:
+	def write(self, data: Any) -> int:
 		return self._buf.write(data)
 
 	def close(self) -> None:
