@@ -58,6 +58,14 @@ def _is_cloud_storage_enabled() -> bool:
 	return bool(config and not config.get("use_local"))
 
 
+def _detach_local_file_before_delete(file_doc) -> None:
+	"""Delete a transient File doc without deleting the shared local payload."""
+	if _is_cloud_storage_enabled() or file_doc.s3_key:
+		return
+	file_doc.file_url = None
+	file_doc.db_set("file_url", None)
+
+
 def _backup_s3_object(key: str) -> tuple[object, str, str] | None:
 	if not key or not _is_cloud_storage_enabled():
 		return None
@@ -685,9 +693,7 @@ class FrappeFile(DAVNonCollection):
 		)
 		for row in rows:
 			if row.file_name.startswith(prefix):
-				_logger.debug(
-					f"atomic save replace final={new_folder}/{new_name!r} displaced={row.name!r}"
-				)
+				_logger.debug(f"atomic save replace final={new_folder}/{new_name!r} displaced={row.name!r}")
 				return row
 		return None
 
@@ -718,6 +724,7 @@ class FrappeFile(DAVNonCollection):
 				existing_doc.save()
 
 			paths.replace_existing_via_webdav(existing_doc, source_doc)
+			_detach_local_file_before_delete(source_doc)
 			frappe.delete_doc("File", source_doc.name)
 			frappe.db.commit()
 			current_s3_key = frappe.db.get_value("File", existing_doc.name, "s3_key")

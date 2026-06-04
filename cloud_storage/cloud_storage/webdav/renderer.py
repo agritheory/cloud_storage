@@ -206,8 +206,11 @@ def _invoke_webdav(request) -> Response:
 		return lambda data: None
 
 	app = _get_webdav_app()
-	body_iter = app(environ, start_response)
+	body_iter = None
+	out = b""
+	status_code = 500
 	try:
+		body_iter = app(environ, start_response)
 		out = b"".join(body_iter)
 	finally:
 		if hasattr(body_iter, "close"):
