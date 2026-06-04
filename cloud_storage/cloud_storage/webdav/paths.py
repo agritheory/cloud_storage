@@ -3,6 +3,7 @@
 # WebDAV-specific S3 path strategy and upload/version pipeline.
 
 import mimetypes
+from urllib.parse import quote
 
 import frappe
 from boto3.exceptions import S3UploadFailedError
@@ -19,8 +20,8 @@ _WEBDAV_PREFIX = "webdav"
 
 
 def _default_webdav_path(file: File, folder: str | None) -> str:
-	"""Per-doc S3 key. ``#`` is %-escaped to match legacy behaviour."""
-	parts = [folder, _WEBDAV_PREFIX, file.name, file.file_name.replace("#", "%23")]
+	"""Per-doc S3 key with a URL-safe filename component."""
+	parts = [folder, _WEBDAV_PREFIX, file.name, quote(file.file_name, safe="")]
 	return "/".join(p for p in parts if p)
 
 

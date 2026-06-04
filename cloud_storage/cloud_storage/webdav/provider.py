@@ -5,6 +5,7 @@
 import io
 import mimetypes
 import uuid
+from urllib.parse import unquote
 
 import frappe
 from frappe.model.rename_doc import rename_doc
@@ -115,9 +116,13 @@ def _strip_dav_prefix(path: str) -> str:
 	return path
 
 
+def _split_dav_path(path: str) -> list[str]:
+	path = _strip_dav_prefix(path).strip("/")
+	return [unquote(part) for part in path.split("/") if part]
+
+
 def _parse_dest(dest_path: str) -> tuple[str, str]:
-	dest = _strip_dav_prefix(dest_path).rstrip("/")
-	parts = [p for p in dest.split("/") if p]
+	parts = _split_dav_path(dest_path)
 	if not parts:
 		raise DAVError(HTTP_FORBIDDEN, "invalid destination")
 	new_name = parts[-1]
@@ -435,7 +440,7 @@ class _MemoryFile(DAVNonCollection):
 		dest = _strip_dav_prefix(dest_path).rstrip("/")
 		if not dest:
 			raise DAVError(HTTP_FORBIDDEN, "invalid destination")
-		os_file_store.set(dest, self._content())
+		os_file_store.set(unquote(dest), self._content())
 		os_file_store.delete(self.path)
 		return True
 
@@ -759,12 +764,10 @@ class FrappeDAVProvider(DAVProvider):
 
 	def get_resource_inst(self, path: str, environ: dict):
 		path = _strip_dav_prefix(path)
-		norm = path.rstrip("/")
+		parts = _split_dav_path(path)
 
-		if not norm:
+		if not parts:
 			return FrappeCollection("/", environ, "Home")
-
-		parts = [p for p in norm.split("/") if p]
 
 		# get_all + _can(read): mirrors has_permission which is broader than
 		# the owner-only SQL filter in permission_query_conditions.
