@@ -53,7 +53,11 @@ class CloudStorageFile(File):
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
 		"""
-		self.associate_files()
+		# `associate_files` can call `.save()` on a duplicate-content File, which re-enters
+		# `validate`. Without this guard, two or more File rows sharing a `content_hash` save
+		# each other in an endless A->B->A loop (maximum recursion depth exceeded).
+		if not self.flags.associating_files:
+			self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		if not self.is_remote_file:
@@ -228,10 +232,18 @@ class CloudStorageFile(File):
 			existing_file = frappe.get_doc("File", associated_doc)
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
-			existing_file.append(
-				"file_association",
-				add_child_file_association(attached_to_doctype, attached_to_name),
+			already_linked = any(
+				assoc.link_doctype == attached_to_doctype and assoc.link_name == attached_to_name
+				for assoc in existing_file.file_association
 			)
+			if not already_linked:
+				existing_file.append(
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
+				)
+			# Prevent `existing_file.save()` -> `validate` -> `associate_files` from recursing
+			# back into this file (and looping between duplicate-content rows).
+			existing_file.flags.associating_files = True
 			existing_file.save()
 		else:
 			if self.file_association:
