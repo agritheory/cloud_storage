@@ -69,6 +69,9 @@ doctype_js = {"File": "public/js/file.js"}
 # before_install = "cloud_storage.install.before_install"
 after_install = "cloud_storage.install.after_install"
 
+# Documented for operators; install hooks read DEBIAN_PACKAGES in install.py.
+debian_packages = ["libmagic1", "libreoffice"]
+
 # Uninstallation
 # ------------
 
