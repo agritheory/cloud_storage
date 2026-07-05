@@ -14,9 +14,9 @@ cd ~ || exit
 sudo apt-get update
 sudo apt-get remove -y mysql-server mysql-client || true
 if [ "$DB" == "postgres" ]; then
-  sudo apt-get install -y libcups2-dev redis-server postgresql-client
+  sudo apt-get install -y libcups2-dev postgresql-client
 else
-  sudo apt-get install -y libcups2-dev redis-server mariadb-client
+  sudo apt-get install -y libcups2-dev mariadb-client
 fi
 
 pip install --upgrade pip
@@ -31,7 +31,11 @@ if [ "$DB" != "postgres" ]; then
   mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "FLUSH PRIVILEGES"
 fi
 
-bench init --skip-assets --python "$(which python)" --frappe-branch "$FRAPPE_BRANCH" frappe-bench --ignore-exist
+bench init --skip-redis-config-generation --skip-assets --python "$(which python)" --frappe-branch "$FRAPPE_BRANCH" frappe-bench --ignore-exist
+
+cd ~/frappe-bench
+bench set-config -g redis_cache "redis://127.0.0.1:13000"
+bench set-config -g redis_queue "redis://127.0.0.1:11000"
 
 mkdir -p ~/frappe-bench/sites/test_site
 if [ "$DB" == "postgres" ]; then

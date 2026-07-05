@@ -1,8 +1,9 @@
-name: Frappe CI - Postgres
+name: Frappe CI - MariaDB
 
 on:
   push:
     branches:
+      - version-15
       - version-16
   pull_request:
 
@@ -14,5 +15,5 @@ jobs:
   tests:
     uses: ./.github/workflows/_base-pytest.yml
     with:
-      db: postgres
-      job-name: Server (Postgres)
+      db: mariadb
+      job-name: Server
