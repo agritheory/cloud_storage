@@ -6,8 +6,9 @@ on:
       - version-14
       - version-15
       - version-16
-      - version-16
-      - version-16
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   release:
