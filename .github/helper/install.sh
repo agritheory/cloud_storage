@@ -2,6 +2,8 @@
 
 set -e
 
+DB="${DB:-mariadb}"
+
 cd ~ || exit
 
 sudo apt update
@@ -13,7 +15,15 @@ pip install frappe-bench
 bench init --skip-assets --python "$(which python)" --frappe-branch version-15 frappe-bench
 
 mkdir ~/frappe-bench/sites/test_site
-cp -r "${GITHUB_WORKSPACE}/.github/helper/site_config.json" ~/frappe-bench/sites/test_site/
+if [ "$DB" == "postgres" ]; then
+  cp "${GITHUB_WORKSPACE}/.github/helper/site_config_postgres.json" ~/frappe-bench/sites/test_site/site_config.json
+  echo "travis" | psql -h 127.0.0.1 -p 5432 -c "CREATE DATABASE test_site" -U postgres
+  echo "travis" | psql -h 127.0.0.1 -p 5432 -c "CREATE USER test_site WITH PASSWORD 'test_site'" -U postgres
+  echo "travis" | psql -h 127.0.0.1 -p 5432 -c "GRANT ALL PRIVILEGES ON DATABASE test_site TO test_site" -U postgres
+else
+  cp "${GITHUB_WORKSPACE}/.github/helper/site_config.json" ~/frappe-bench/sites/test_site/site_config.json
+fi
+
 
 mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
 mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
