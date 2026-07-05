@@ -49,8 +49,8 @@ Faker = "~=18.10.1"
 [tool.pytest.ini_options]
 addopts = "--cov=cloud_storage --cov-report term-missing"
 
-[tool.semantic_release.branches.version-15]
-match = "version-15"
-
 [tool.semantic_release.branches.version-16]
-match = "version-16"
+match = "^version-16$"
+
+[tool.semantic_release.branches.version-15]
+match = "^version-15$"

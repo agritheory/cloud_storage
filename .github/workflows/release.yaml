@@ -24,9 +24,17 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.ref_name }}
+      - name: Determine initial major release for version-16
+        id: release
+        run: |
+          if [ "${{ github.ref_name }}" = "version-16" ] && [ -z "$(git tag -l 'v16.*')" ]; then
+            echo "force=major" >> "$GITHUB_OUTPUT"
+          fi
       - name: Python Semantic Release
         uses: python-semantic-release/python-semantic-release@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           git_committer_name: AgriTheory
           git_committer_email: support@agritheory.dev
+          force: ${{ steps.release.outputs.force }}
