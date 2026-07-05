@@ -9,7 +9,7 @@ on:
   pull_request:
 
 concurrency:
-  group: version-15-cloud_storage-${{ github.event.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 permissions:

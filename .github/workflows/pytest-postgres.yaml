@@ -9,7 +9,7 @@ on:
   pull_request:
 
 concurrency:
-  group: version-15-cloud_storage-${{ github.event.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -28,6 +28,8 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
+    env:
+      DB: postgres
 
     services:
       postgres:
@@ -94,6 +96,8 @@ jobs:
       - name: Install
         run: |
           bash ${GITHUB_WORKSPACE}/.github/helper/install.sh
+        env:
+          CI: 'Yes'
 
 
       - name: Run Tests
