@@ -4,12 +4,11 @@ For license information, please see license.txt-->
 # Cloud Storage Developer Setup
 
 <div class="byline">
-  Tyler Matteson and semantic-release 2026-02-21
+  Tyler Matteson 2026-07-05
 </div>
 
 
-Before you begin, make sure that your Python version is:
-- Latest 3.10 for Frappe's version 14.
+Before you begin, make sure that your Python version matches your Frappe branch (for example, Python 3.14 for Frappe version 16).
 
 1. First, set up a new bench and substitute a path to the python version to use. These instructions use [pyenv](https://github.com/pyenv/pyenv) for managing environments.
 
@@ -78,7 +77,13 @@ mypy ./apps/cloud_storage/cloud_storage --ignore-missing-imports
 ```
 
 11. To run `pytest` locally
+
 ```shell
+source env/bin/activate
 bench setup requirements --dev
-pytest
+bench --site {{ site name }} install-app cloud_storage
+bench --site {{ site name }} execute 'cloud_storage.tests.setup.before_test'
+
+cd apps/cloud_storage
+pytest cloud_storage/tests/ -v
 ```

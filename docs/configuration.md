@@ -4,7 +4,7 @@ For license information, please see license.txt-->
 # Cloud Storage Site Configuration
 
 <div class="byline">
-  Tyler Matteson and semantic-release 2026-02-21
+  Tyler Matteson 2026-07-05
 </div>
 
 
@@ -25,7 +25,8 @@ Set the following keys in your site's configuration file (`/sites/{site_name}/si
     // the ID of the region where your bucket is located
     "region": "s3-region-name",
 
-    // the endpoint URL for your S3 instance
+    // the endpoint URL for your S3-compatible provider (MinIO, B2, DO Spaces, etc.)
+    // omit for native AWS S3 — boto3 uses the default regional endpoint
     "endpoint_url": "s3-endpoint-url",
 
     // S3 access key ID

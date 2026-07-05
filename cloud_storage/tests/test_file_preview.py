@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 import frappe
 import pytest
 
-from cloud_storage.cloud_storage.overrides.file import CloudStorageFile
+from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, get_cloud_storage_client
 
 
 TEST_FILES = Path(__file__).parent / "fixtures"
@@ -81,13 +81,14 @@ def test_local_presentation_pdf_preview(mock_run, tmp_path, monkeypatch, ext):
 
 @pytest.mark.parametrize("ext", ["ppt", "pptx", "odp", "key"])
 @patch("cloud_storage.cloud_storage.overrides.file.subprocess.run")
-def test_s3_presentation_preview(mock_run, mocked_s3_client, monkeypatch, tmp_path, ext):
+def test_s3_presentation_preview(mock_run, tmp_path, ext):
 	"""Test preview when file comes from S3"""
 
 	pres_content = b"presentation binary"
+	client = get_cloud_storage_client()
 
-	mocked_s3_client.put_object(
-		Bucket=mocked_s3_client.bucket,
+	client.put_object(
+		Bucket=client.bucket,
 		Key=f"slides.{ext}",
 		Body=pres_content,
 	)
@@ -102,18 +103,20 @@ def test_s3_presentation_preview(mock_run, mocked_s3_client, monkeypatch, tmp_pa
 
 	doc.s3_key = f"slides.{ext}"
 
-	monkeypatch.setattr(
-		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
-		lambda: mocked_s3_client,
-	)
-
 	mock_run.return_value = None
+	real_open = open
+
+	def open_for_pdf(path, *args, **kwargs):
+		if str(path).endswith(".pdf"):
+			return pdf_file.open("rb")
+		return real_open(path, *args, **kwargs)
 
 	with patch(
-		"builtins.open",
-		lambda *args, **kwargs: pdf_file.open("rb"),
+		"cloud_storage.cloud_storage.overrides.file.Path.with_suffix",
+		return_value=pdf_file,
 	):
-		result = doc.get_pdf_preview()
+		with patch("builtins.open", open_for_pdf):
+			result = doc.get_pdf_preview()
 
 	decoded = base64.b64decode(result)
 

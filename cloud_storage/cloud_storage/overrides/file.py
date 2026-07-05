@@ -84,6 +84,21 @@ class CloudStorageFile(File):
 
 		self.file_size = frappe.form_dict.file_size or self.file_size
 
+	def save_file(
+		self,
+		content: bytes | str | None = None,
+		decode=False,
+		ignore_existing_file_check=False,
+		overwrite=False,
+	):
+		# write_file (cloud or local) owns naming and dedup; skip Frappe's filesystem rename.
+		return super().save_file(
+			content=content,
+			decode=decode,
+			ignore_existing_file_check=ignore_existing_file_check,
+			overwrite=True,
+		)
+
 	def after_insert(self) -> File:
 		"""
 		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
@@ -473,12 +488,6 @@ def validate_config() -> None:
 		frappe.throw(
 			msg=_("Please setup cloud storage settings in your site configuration file"),
 			title=_("Cloud storage not configured"),
-		)
-
-	if not config.get("endpoint_url"):
-		frappe.throw(
-			msg=_("Please setup endpoint_url in your site configuration file"),
-			title=_("Cloud storage endpoint not configured"),
 		)
 
 	if not config.get("access_key"):
