@@ -13,6 +13,11 @@ concurrency:
 jobs:
   tests:
     uses: ./.github/workflows/_base-pytest.yml
+    permissions:
+      contents: write
+      checks: write
+      issues: write
+      pull-requests: write
     with:
       db: postgres
       job-name: Server (Postgres)
