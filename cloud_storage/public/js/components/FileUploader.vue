@@ -458,7 +458,7 @@ function check_restrictions(file) {
 	return is_correct_type && valid_file_size
 }
 function upload_files() {
-	const files_in_rename = this.files.filter(file => file.in_rename)
+	const files_in_rename = files.value.filter(file => file.in_rename)
 	if (files_in_rename.length > 0) {
 		frappe.msgprint(__('Please complete renaming the files before uploading.'))
 

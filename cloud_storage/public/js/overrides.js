@@ -7,6 +7,21 @@ import FileUploaderComponent from './components/FileUploader.vue'
 
 $(window).on('hashchange', page_changed)
 $(window).on('load', page_changed)
+console.log("🔥 overrides.js loaded");
+console.log("🔥 CLOUD STORAGE LOADED");
+alert("CLOUD STORAGE JS LOADED");
+
+frappe.ready(() => {
+	console.log("🔥 mounting test uploader");
+
+	const div = document.createElement("div");
+	div.innerHTML = `<div id="test-uploader"></div>`;
+	document.body.appendChild(div);
+
+	createApp({
+		template: `<div style="color:red">VUE IS WORKING ✅</div>`
+	}).mount("#test-uploader");
+});
 
 function page_changed(event) {
 	frappe.after_ajax(() => {
