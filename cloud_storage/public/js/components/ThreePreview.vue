@@ -7,20 +7,16 @@ export default {
 	props: ['file_url'],
 
 	async mounted() {
-		console.log("ThreePreview mounted:", this.file_url)
+		console.log('ThreePreview mounted:', this.file_url)
 
 		// ✅ Load THREE from CDN
 		const THREE = await import('https://unpkg.com/three@0.158.0/build/three.module.js')
 
 		// ✅ Load OrbitControls
-		const { OrbitControls } = await import(
-			'https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js'
-		)
+		const { OrbitControls } = await import('https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js')
 
 		// ✅ Load OBJLoader
-		const { OBJLoader } = await import(
-			'https://unpkg.com/three@0.158.0/examples/jsm/loaders/OBJLoader.js'
-		)
+		const { OBJLoader } = await import('https://unpkg.com/three@0.158.0/examples/jsm/loaders/OBJLoader.js')
 
 		const container = this.$refs.container
 
@@ -29,12 +25,7 @@ export default {
 		scene.background = new THREE.Color(0x222222)
 
 		// Camera
-		const camera = new THREE.PerspectiveCamera(
-			75,
-			container.clientWidth / container.clientHeight,
-			0.1,
-			1000
-		)
+		const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000)
 		camera.position.set(2, 2, 2)
 
 		// Renderer
@@ -54,8 +45,7 @@ export default {
 
 		// Load OBJ
 		const loader = new OBJLoader()
-		loader.load(this.file_url, (object) => {
-
+		loader.load(this.file_url, object => {
 			// Center model
 			const box = new THREE.Box3().setFromObject(object)
 			const center = box.getCenter(new THREE.Vector3())
@@ -74,14 +64,14 @@ export default {
 			renderer.render(scene, camera)
 		}
 		animate()
-	}
+	},
 }
 </script>
 
 <style scoped>
 .three-container {
 	width: 100%;
-	height: 200px;   /* 🔥 THIS IS WHY IT WAS INVISIBLE */
+	height: 200px; /* 🔥 THIS IS WHY IT WAS INVISIBLE */
 	background: #111;
 	border-radius: 6px;
 }

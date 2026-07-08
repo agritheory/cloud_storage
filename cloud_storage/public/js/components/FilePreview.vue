@@ -1,10 +1,8 @@
 <template>
 	<div class="file-preview">
-		<div style="color:red">
-🔥 FILE PREVIEW 12345
-</div>
-		<div style="color:red">FILE PREVIEW WORKING</div>
-		<div style="color:red">TEST COMPONENT</div>
+		<div style="color: red">🔥 FILE PREVIEW 12345</div>
+		<div style="color: red">FILE PREVIEW WORKING</div>
+		<div style="color: red">TEST COMPONENT</div>
 
 		<!-- 🔹 Non-3D files -->
 		<div class="file-icon" v-if="!is_3d">
@@ -13,12 +11,7 @@
 		</div>
 
 		<!-- 🔹 3D Preview -->
-		<ThreePreview
-			v-else
-			:file_url="resolved_url"
-			:filename="file.name"
-			:is_private="file.private"
-		/>
+		<ThreePreview v-else :file_url="resolved_url" :filename="file.name" :is_private="file.private" />
 
 		<!-- 🔹 File Info -->
 		<div class="file-info">
@@ -31,7 +24,6 @@
 				</button>
 			</div>
 		</div>
-
 	</div>
 </template>
 
@@ -50,8 +42,9 @@ export default {
 		// ✅ detect 3D
 		is_3d() {
 			if (!this.file?.name) return false
-			return ['.obj','.glb','.gltf','.fbx','.dae','.ply','.stl']
-				.some(ext => this.file.name.toLowerCase().endsWith(ext))
+			return ['.obj', '.glb', '.gltf', '.fbx', '.dae', '.ply', '.stl'].some(ext =>
+				this.file.name.toLowerCase().endsWith(ext)
+			)
 		},
 
 		// ✅ resolve correct URL (IMPORTANT)
@@ -75,8 +68,8 @@ export default {
 				return URL.createObjectURL(this.file.file_obj)
 			}
 			return this.file.doc?.file_url
-		}
-	}
+		},
+	},
 }
 </script>
 
