@@ -132,10 +132,11 @@
  ],
  "grid_page_length": 50,
  "links": [],
- "modified": "2026-07-16 13:28:52.674085",
+ "modified": "2026-07-16 13:31:58.882504",
  "modified_by": "Administrator",
  "module": "Cloud Storage",
  "name": "Local File Cache",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {
