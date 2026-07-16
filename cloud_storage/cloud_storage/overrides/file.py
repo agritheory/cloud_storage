@@ -528,6 +528,22 @@ def validate_config() -> None:
 			title=_("Cloud storage bucket not configured"),
 		)
 
+	if config.get("local_cache_enabled") and config.get("use_local"):
+		frappe.throw(
+			msg=_("local_cache_enabled and use_local are mutually exclusive in cloud storage settings"),
+			title=_("Conflicting cloud storage settings"),
+		)
+
+
+def get_max_cache_size_bytes() -> int:
+	config = frappe.conf.cloud_storage_settings or {}
+	return int(config.get("max_cache_size_gb", 50) * 1024**3)
+
+
+def get_emergency_cache_size_bytes() -> int:
+	config = frappe.conf.cloud_storage_settings or {}
+	return int(config.get("emergency_cache_size_gb", 80) * 1024**3)
+
 
 def get_presigned_url(client, key: str):
 	file = frappe.get_value("File", {"s3_key": key}, ["name", "is_private"], as_dict=True)
