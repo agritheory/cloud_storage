@@ -29,6 +29,16 @@ from magic import from_buffer
 from PIL import UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
 
+from cloud_storage.cloud_storage.local_cache import (
+	enforce_local_read_permission,
+	get_cached_content,
+	get_live_cache_record,
+	is_local_cache_enabled,
+	read_cache_bytes,
+	touch_cache_access,
+	warm_local_cache,
+)
+
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
@@ -320,9 +330,14 @@ class CloudStorageFile(File):
 			self.validate_file_url()
 
 		if self.file_url.startswith("/api/method/retrieve"):
+			cached_content = get_cached_content(self)
+			if cached_content is not None:
+				self._content = cached_content
+				return self._content
 			client = get_cloud_storage_client()
 			file_object = client.get_object(Bucket=client.bucket, Key=self.s3_key)
 			self._content = file_object.get("Body").read()
+			warm_local_cache(self, self._content)
 		elif self.file_url.startswith("http://") or self.file_url.startswith("https://"):
 			self._content = urlopen(self.file_url).read()
 		else:
@@ -389,12 +404,13 @@ class CloudStorageFile(File):
 		ext = self.file_name.split(".")[-1].lower()
 
 		if self.file_url.startswith("/api/method/retrieve"):
-			client = get_cloud_storage_client()
-			ppt_s3_key = self.s3_key
+			file_bytes = get_cached_content(self)
+			if file_bytes is None:
+				client = get_cloud_storage_client()
+				file_bytes = client.get_object(Bucket=client.bucket, Key=self.s3_key)["Body"].read()
+				warm_local_cache(self, file_bytes)
 
 			with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as temp_file:
-				file_bytes = client.get_object(Bucket=client.bucket, Key=ppt_s3_key)["Body"].read()
-
 				temp_file.write(file_bytes)
 				temp_file.flush()
 
@@ -533,16 +549,6 @@ def validate_config() -> None:
 			msg=_("local_cache_enabled and use_local are mutually exclusive in cloud storage settings"),
 			title=_("Conflicting cloud storage settings"),
 		)
-
-
-def get_max_cache_size_bytes() -> int:
-	config = frappe.conf.cloud_storage_settings or {}
-	return int(config.get("max_cache_size_gb", 50) * 1024**3)
-
-
-def get_emergency_cache_size_bytes() -> int:
-	config = frappe.conf.cloud_storage_settings or {}
-	return int(config.get("emergency_cache_size_gb", 80) * 1024**3)
 
 
 def get_presigned_url(client, key: str):
@@ -763,15 +769,41 @@ def validate_file_content(*args, **kwargs):
 	}
 
 
+def serve_cached_response(key: str) -> bool:
+	"""Serve `key` from the local cache into frappe.local.response. True on a hit."""
+	if not is_local_cache_enabled():
+		return False
+	cache = get_live_cache_record({"s3_key": key})
+	if not cache:
+		return False
+	content = read_cache_bytes(cache)
+	if content is None:
+		return False
+
+	file_doc = frappe.get_doc("File", cache.file) if cache.file else None
+	if file_doc:
+		enforce_local_read_permission(file_doc)
+	touch_cache_access(cache.name)
+
+	frappe.local.response["type"] = "download"
+	frappe.local.response["filecontent"] = content
+	frappe.local.response["filename"] = file_doc.file_name if file_doc else key.rsplit("/", 1)[-1]
+	return True
+
+
 @frappe.whitelist(allow_guest=True)
 def retrieve(key: str) -> None:
-	if key:
-		client = get_cloud_storage_client()
-		signed_url = client.get_presigned_url(key)
-		frappe.local.response["type"] = "redirect"
-		frappe.local.response["location"] = signed_url
+	if not key:
+		frappe.local.response["body"] = "Key not found"
+		return
 
-	frappe.local.response["body"] = "Key not found"
+	if serve_cached_response(key):
+		return
+
+	client = get_cloud_storage_client()
+	signed_url = client.get_presigned_url(key)
+	frappe.local.response["type"] = "redirect"
+	frappe.local.response["location"] = signed_url
 
 
 @frappe.whitelist(allow_guest=True)
