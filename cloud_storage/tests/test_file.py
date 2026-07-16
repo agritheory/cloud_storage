@@ -89,6 +89,28 @@ def save_file_locally_if_no_cloud_storage(file):
 	return file
 
 
+def raw_file(name, content_hash):
+	"""Insert a File row directly, bypassing validate/associate_files merge-on-insert.
+
+	The normal insert path merges duplicate-content_hash rows into one, we use this
+	to produce the two coexisting duplicate rows required for some tests.
+	"""
+	doc = frappe.get_doc(
+		{
+			"doctype": "File",
+			"file_name": f"{name}.png",
+			"content_hash": content_hash,
+			"file_url": "/api/method/retrieve?key=test_folder/User/Administrator/dup.png",
+			"attached_to_doctype": "User",
+			"attached_to_name": "Administrator",
+			"is_folder": 0,
+		}
+	)
+	doc.name = name
+	doc.db_insert()
+	return doc
+
+
 @mock_s3
 def test_config(get_cloud_storage_client_fixture):
 	c = get_cloud_storage_client_fixture
@@ -242,6 +264,37 @@ def test_file_versioning_different_documents(mocked_s3_client, example_file_reco
 		link_doctypes_names = [(fa.link_doctype, fa.link_name) for fa in file1.file_association]
 		assert ("User", "Administrator") in link_doctypes_names
 		assert ("User", "Guest") in link_doctypes_names
+
+
+@mock_s3
+def test_save_duplicate_content_hash_no_recursion():
+	"""Two File rows sharing a content_hash must not recurse when one is saved."""
+	frappe.set_user("Administrator")
+	content_hash = "deadbeefdeadbeefdeadbeefdeadbeef"
+	file_a = raw_file("test-dup-a", content_hash)
+	raw_file("test-dup-b", content_hash)
+
+	doc = frappe.get_doc("File", file_a.name)
+	doc.save()  # would raise RecursionError before the associating_files guard
+
+	assert frappe.db.exists("File", "test-dup-a")
+	assert frappe.db.exists("File", "test-dup-b")
+
+
+@mock_s3
+def test_associate_files_no_duplicate_association():
+	"""Associating the same link twice must not grow a duplicate file_association row."""
+	frappe.set_user("Administrator")
+	file = raw_file("test-assoc-guard", "assocguardhashassocguardhash0001")
+	before = len(file.file_association)
+
+	file.associate_files("Module Def", "Cloud Storage")
+	after_first = len(file.file_association)
+	file.associate_files("Module Def", "Cloud Storage")
+	after_second = len(file.file_association)
+
+	assert after_first == before + 1
+	assert after_second == after_first  # already_linked guard prevents duplicate
 
 
 def test_migration_command(mocked_s3_client, example_file_record_6):
