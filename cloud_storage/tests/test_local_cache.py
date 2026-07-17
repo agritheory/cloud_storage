@@ -9,11 +9,19 @@ from unittest.mock import patch
 
 import frappe
 import pytest
+from botocore.exceptions import ClientError, EndpointConnectionError
 from werkzeug.datastructures import FileMultiDict
 
 from cloud_storage.cloud_storage.local_cache import get_cached_bytes_total, get_unevictable_bytes_total
 from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, retrieve
-from cloud_storage.cloud_storage.tasks import evict_lru_cache, replicate_cached_file
+from cloud_storage.cloud_storage.tasks import (
+	check_cloud_health,
+	evict_lru_cache,
+	process_pending_deletes,
+	reconcile_local_cache,
+	replicate_cached_file,
+	retry_pending_replications,
+)
 from cloud_storage.migration import migrate_files
 
 
@@ -25,6 +33,19 @@ def override_cache_settings(**overrides):
 		yield
 	finally:
 		frappe.conf.cloud_storage_settings = original
+
+
+@contextmanager
+def degraded_cloud_storage():
+	frappe.db.set_single_value("Cloud Storage Health", "status", "Degraded")
+	try:
+		yield
+	finally:
+		frappe.db.set_single_value("Cloud Storage Health", "status", "Healthy")
+
+
+def down_endpoint_error():
+	return EndpointConnectionError(endpoint_url="https://down.example")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -523,3 +544,297 @@ def test_bypass_flag_on_interactive_upload(mocked_s3_client):
 
 	assert not frappe.db.exists("Local File Cache", {"file": file.name})
 	assert file.s3_key
+
+
+# Grupo 5 — modo degradado
+
+
+def test_upload_succeeds_while_object_store_down(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch.object(mocked_s3_client, "put_object", side_effect=down_endpoint_error()):
+		content = b"upload succeeds while object store down"
+		file = create_attached_upload(content, file_name="degraded_upload.bin")
+
+	cache = get_cache(file.name)
+	assert cache.replicated == 0
+	assert Path(cache.local_path).read_bytes() == content
+
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	), patch.object(mocked_s3_client, "put_object", side_effect=down_endpoint_error()):
+		replicate_cached_file(cache.name)
+
+	cache.reload()
+	assert cache.replicated == 0
+	assert cache.replication_attempts == 1
+	assert cache.last_replication_error
+
+
+def test_cached_read_succeeds_while_object_store_down(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content = b"cached read succeeds while object store down"
+		file = create_upload_file(content, file_name="degraded_cached_read.bin")
+		reload_file(file).get_content()
+
+	cache = get_cache(file.name)
+
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch.object(mocked_s3_client, "get_object", side_effect=down_endpoint_error()):
+		assert bytes(reload_file(file).get_content()) == content
+
+		frappe.local.response = frappe._dict()
+		retrieve(cache.s3_key)
+		assert frappe.local.response.get("type") == "download"
+		assert bytes(frappe.local.response.get("filecontent")) == content
+
+
+def test_uncached_read_returns_503_not_redirect(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		file = create_uncached_cloud_file(b"uncached during outage", file_name="degraded_uncached.bin")
+
+	assert not frappe.db.exists("Local File Cache", {"file": file.name})
+
+	with degraded_cloud_storage():
+		frappe.local.response = frappe._dict()
+		retrieve(file.s3_key)
+
+	assert frappe.local.response.get("http_status_code") == 503
+	assert frappe.local.response.get("type") != "redirect"
+	assert not frappe.local.response.get("location")
+
+
+def test_delete_creates_tombstone_while_down(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content = b"delete creates tombstone while down"
+		file = create_upload_file(content, file_name="degraded_delete.bin")
+
+	cache = get_cache(file.name)
+	local_path = cache.local_path
+	s3_key = cache.s3_key
+	assert os.path.exists(local_path)
+
+	with degraded_cloud_storage(), patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		frappe.delete_doc("File", file.name, ignore_permissions=True)
+
+	assert not frappe.db.exists("File", file.name)
+	assert not os.path.exists(local_path)
+
+	cache.reload()
+	assert frappe.db.exists("Local File Cache", cache.name)
+	assert cache.pending_delete == 1
+	assert cache.s3_key == s3_key
+
+
+def test_eviction_paused_while_degraded(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		baseline = get_cached_bytes_total()
+		file = create_attached_upload(b"P" * 200, file_name="degraded_eviction.bin")
+
+	cache = get_cache(file.name)
+	cache.db_set("replicated", 1)
+	cache.db_set("accessed_at", "2019-01-01 00:00:00")
+
+	budget_bytes = baseline + 10
+	with degraded_cloud_storage(), override_cache_settings(max_cache_size_gb=budget_bytes / 1024**3):
+		evict_lru_cache()
+
+	cache.reload()
+	assert cache.evicted == 0
+	assert os.path.exists(cache.local_path)
+
+
+# Grupo 6 — recuperación
+
+
+def test_recovery_drains_backlog_oldest_first(mocked_s3_client):
+	# neutralize stray unreplicated rows from other tests so the sweep below is unambiguous
+	frappe.db.sql("update `tabLocal File Cache` set replicated=1 where replicated=0 and pending_delete=0")
+
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch.object(mocked_s3_client, "put_object", side_effect=down_endpoint_error()):
+		older = create_attached_upload(b"recovery drain older", file_name="recovery_older.bin")
+		newer = create_attached_upload(b"recovery drain newer", file_name="recovery_newer.bin")
+
+	older_cache = get_cache(older.name)
+	newer_cache = get_cache(newer.name)
+	assert older_cache.replicated == 0
+	assert newer_cache.replicated == 0
+
+	# pin creation order explicitly rather than relying on insert timing precision
+	frappe.db.set_value("Local File Cache", older_cache.name, "creation", "2000-01-01 00:00:00")
+	frappe.db.set_value("Local File Cache", newer_cache.name, "creation", "2000-01-01 00:00:01")
+
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	), patch(
+		"cloud_storage.cloud_storage.tasks.replicate_cached_file", wraps=replicate_cached_file
+	) as spy:
+		retry_pending_replications()
+
+	assert [call.args[0] for call in spy.call_args_list] == [older_cache.name, newer_cache.name]
+
+	older_cache.reload()
+	newer_cache.reload()
+	assert older_cache.replicated == 1
+	assert newer_cache.replicated == 1
+	assert mocked_s3_client.head_object(Bucket=mocked_s3_client.bucket, Key=older_cache.s3_key)
+	assert mocked_s3_client.head_object(Bucket=mocked_s3_client.bucket, Key=newer_cache.s3_key)
+
+
+def test_recovery_processes_tombstones(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content = b"recovery processes tombstones"
+		file = create_upload_file(content, file_name="recovery_tombstone.bin")
+
+	cache = get_cache(file.name)
+	s3_key = cache.s3_key
+
+	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+		replicate_cached_file(cache.name)
+
+	assert mocked_s3_client.head_object(Bucket=mocked_s3_client.bucket, Key=s3_key)
+
+	with degraded_cloud_storage(), patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		frappe.delete_doc("File", file.name, ignore_permissions=True)
+
+	cache.reload()
+	assert cache.pending_delete == 1
+
+	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+		process_pending_deletes()
+
+	assert not frappe.db.exists("Local File Cache", cache.name)
+	with pytest.raises(ClientError):
+		mocked_s3_client.head_object(Bucket=mocked_s3_client.bucket, Key=s3_key)
+
+
+def test_replication_retries_stop_at_max_retries(mocked_s3_client):
+	# neutralize stray unreplicated rows from other tests, same as the backlog-order test above
+	frappe.db.sql("update `tabLocal File Cache` set replicated=1 where replicated=0 and pending_delete=0")
+
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch.object(mocked_s3_client, "put_object", side_effect=down_endpoint_error()):
+		below_cap = create_attached_upload(b"below cap retry", file_name="retry_below_cap.bin")
+		at_cap = create_attached_upload(b"at cap retry", file_name="retry_at_cap.bin")
+
+	below_cap_cache = get_cache(below_cap.name)
+	at_cap_cache = get_cache(at_cap.name)
+	below_cap_cache.db_set("replication_attempts", 2)
+	at_cap_cache.db_set("replication_attempts", 3)
+
+	with override_cache_settings(replication_max_retries=3), patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	), patch(
+		"cloud_storage.cloud_storage.tasks.replicate_cached_file", wraps=replicate_cached_file
+	) as spy:
+		retry_pending_replications()
+
+	called_names = [call.args[0] for call in spy.call_args_list]
+	assert below_cap_cache.name in called_names
+	assert at_cap_cache.name not in called_names
+
+	below_cap_cache.reload()
+	at_cap_cache.reload()
+	assert below_cap_cache.replicated == 1
+	assert at_cap_cache.replicated == 0
+	assert at_cap_cache.replication_attempts == 3
+
+
+def test_recovery_resets_replication_attempts_and_error(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch.object(mocked_s3_client, "put_object", side_effect=down_endpoint_error()):
+		content = b"recovery resets attempts"
+		file = create_attached_upload(content, file_name="recovery_reset_attempts.bin")
+
+	cache = get_cache(file.name)
+	# simulate a long outage: attempts already past any reasonable replication_max_retries
+	cache.db_set("replication_attempts", 25)
+	cache.db_set("last_replication_error", "stale error from before the outage ended")
+	frappe.db.set_single_value(
+		"Cloud Storage Health",
+		{"status": "Degraded", "consecutive_failures": 5, "degraded_since": frappe.utils.now_datetime()},
+	)
+
+	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+		check_cloud_health()
+
+	assert frappe.get_single("Cloud Storage Health").status == "Healthy"
+
+	cache.reload()
+	assert cache.replication_attempts == 0
+	assert not cache.last_replication_error
+
+	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+		retry_pending_replications()
+
+	cache.reload()
+	assert cache.replicated == 1
+	assert not cache.last_replication_error
+	assert mocked_s3_client.head_object(Bucket=mocked_s3_client.bucket, Key=cache.s3_key)
+
+
+# Grupo 8 — reconciliación al iniciar
+
+
+def test_reconciliation_marks_missing_files_evicted(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content = b"reconciliation marks missing evicted"
+		file = create_attached_upload(content, file_name="reconcile_missing.bin")
+
+	cache = get_cache(file.name)
+	os.remove(cache.local_path)
+
+	reconcile_local_cache()
+
+	cache.reload()
+	assert cache.evicted == 1
+	assert cache.evicted_at
+
+
+def test_reconciliation_removes_orphaned_files(mocked_s3_client):
+	baseline = get_cached_bytes_total()
+
+	orphan_dir = frappe.get_site_path("local_cache", "zz")
+	os.makedirs(orphan_dir, exist_ok=True)
+	orphan_path = os.path.join(orphan_dir, "reconcile_orphan_scratch")
+	with open(orphan_path, "wb") as fh:
+		fh.write(b"orphan bytes")
+
+	reconcile_local_cache()
+
+	assert not os.path.exists(orphan_path)
+	assert get_cached_bytes_total() == baseline
