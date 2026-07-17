@@ -25,6 +25,10 @@ def is_warm_on_read_enabled() -> bool:
 	return bool(config.get("warm_on_read", True))
 
 
+def is_cloud_storage_degraded() -> bool:
+	return frappe.db.get_single_value("Cloud Storage Health", "status") == "Degraded"
+
+
 def get_max_cache_size_bytes() -> int:
 	config = frappe.conf.cloud_storage_settings or {}
 	return int(config.get("max_cache_size_gb", 50) * 1024**3)
@@ -216,6 +220,21 @@ def delete_cache_record(file_name: str) -> None:
 	if local_path and os.path.exists(local_path):
 		os.remove(local_path)
 	frappe.delete_doc("Local File Cache", cache_name, ignore_permissions=True)
+
+
+def tombstone_cache_record(file: File) -> None:
+	"""Remove local bytes and mark pending_delete=1, keeping s3_key for process_pending_deletes.
+	Admits a row on the fly for files that were never cached, so the remote object isn't orphaned."""
+	cache_name = frappe.db.exists("Local File Cache", {"file": file.name})
+	if cache_name:
+		local_path = frappe.db.get_value("Local File Cache", cache_name, "local_path")
+		if local_path and os.path.exists(local_path):
+			os.remove(local_path)
+		frappe.db.set_value("Local File Cache", cache_name, "pending_delete", 1, update_modified=False)
+	else:
+		frappe.get_doc(
+			{"doctype": "Local File Cache", "file": file.name, "s3_key": file.s3_key, "pending_delete": 1}
+		).insert(ignore_permissions=True)
 
 
 def get_retention_cutoff():

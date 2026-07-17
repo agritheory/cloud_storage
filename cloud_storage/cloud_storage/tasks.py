@@ -1,6 +1,9 @@
 # Copyright (c) 2026, AgriTheory and contributors
 # For license information, please see license.txt
 
+import os
+from pathlib import Path
+
 import frappe
 from magic import from_buffer
 
@@ -10,6 +13,7 @@ from cloud_storage.cloud_storage.local_cache import (
 	get_emergency_cache_size_bytes,
 	get_max_cache_size_bytes,
 	get_retention_cutoff,
+	is_cloud_storage_degraded,
 	is_local_cache_enabled,
 	read_cache_bytes,
 )
@@ -23,6 +27,9 @@ def replicate_cached_file(local_file_cache_name: str):
 
 	cache = frappe.get_doc("Local File Cache", local_file_cache_name)
 	if cache.replicated:
+		return
+
+	if not frappe.db.exists("File", cache.file):
 		return
 
 	content = read_cache_bytes(cache)
@@ -50,10 +57,11 @@ def replicate_cached_file(local_file_cache_name: str):
 
 	cache.db_set("replicated", 1)
 	cache.db_set("replicated_at", frappe.utils.now_datetime())
+	cache.db_set("last_replication_error", None)
 
 
 def evict_lru_cache():
-	if frappe.db.get_single_value("Cloud Storage Health", "status") == "Degraded":
+	if is_cloud_storage_degraded():
 		return
 
 	total = get_cached_bytes_total()
@@ -96,8 +104,71 @@ def check_cloud_health():
 	if health.status == "Degraded":
 		updates["status"] = "Healthy"
 		updates["degraded_since"] = None
+		# outage over: attempts racked up during it shouldn't count against replication_max_retries
+		frappe.db.sql(
+			"update `tabLocal File Cache` set replication_attempts=0, last_replication_error=null"
+			" where replicated=0 and pending_delete=0"
+		)
 	frappe.db.set_single_value("Cloud Storage Health", updates, update_modified=False)
 
 
+def retry_pending_replications():
+	if not is_local_cache_enabled():
+		return
+
+	max_retries = (frappe.conf.cloud_storage_settings or {}).get("replication_max_retries", 10)
+	pending = frappe.get_all(
+		"Local File Cache",
+		filters={"replicated": 0, "pending_delete": 0, "replication_attempts": ["<", max_retries]},
+		fields=["name"],
+		order_by="creation asc",
+	)
+	for row in pending:
+		replicate_cached_file(row.name)
+
+
 def process_pending_deletes():
-	pass
+	if not is_local_cache_enabled():
+		return
+
+	pending = frappe.get_all(
+		"Local File Cache", filters={"pending_delete": 1}, fields=["name", "s3_key"], order_by="creation asc"
+	)
+	if not pending:
+		return
+
+	client = get_cloud_storage_client()
+	for row in pending:
+		try:
+			client.delete_object(Bucket=client.bucket, Key=row.s3_key)
+		except Exception as e:
+			frappe.log_error(str(e), "Cloud Storage Error: Could not delete tombstoned file")
+			continue
+		frappe.delete_doc("Local File Cache", row.name, ignore_permissions=True)
+
+
+def reconcile_local_cache():
+	if not is_local_cache_enabled():
+		return
+
+	live_rows = frappe.get_all(
+		"Local File Cache", filters={"evicted": 0, "pending_delete": 0}, fields=["name", "local_path"]
+	)
+	known_paths = set()
+	for row in live_rows:
+		if row.local_path and os.path.exists(row.local_path):
+			known_paths.add(row.local_path)
+		else:
+			frappe.db.set_value(
+				"Local File Cache",
+				row.name,
+				{"evicted": 1, "evicted_at": frappe.utils.now_datetime()},
+				update_modified=False,
+			)
+
+	cache_root = Path(frappe.get_site_path("local_cache"))
+	if not cache_root.is_dir():
+		return
+	for path in cache_root.rglob("*"):
+		if path.is_file() and str(path) not in known_paths:
+			path.unlink()

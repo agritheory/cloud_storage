@@ -36,10 +36,12 @@ from cloud_storage.cloud_storage.local_cache import (
 	enqueue_replication,
 	get_cached_content,
 	get_live_cache_record,
+	is_cloud_storage_degraded,
 	is_emergency_ceiling_unrecoverable,
 	is_local_cache_enabled,
 	read_cache_bytes,
 	touch_cache_access,
+	tombstone_cache_record,
 	warm_local_cache,
 	write_local_cache_bytes,
 )
@@ -343,6 +345,8 @@ class CloudStorageFile(File):
 			if cached_content is not None:
 				self._content = cached_content
 				return self._content
+			if is_cloud_storage_degraded():
+				frappe.throw(_("Cloud storage is unavailable and this file is not cached locally"))
 			client = get_cloud_storage_client()
 			file_object = client.get_object(Bucket=client.bucket, Key=self.s3_key)
 			self._content = file_object.get("Body").read()
@@ -415,6 +419,8 @@ class CloudStorageFile(File):
 		if self.file_url.startswith("/api/method/retrieve"):
 			file_bytes = get_cached_content(self)
 			if file_bytes is None:
+				if is_cloud_storage_degraded():
+					frappe.throw(_("Cloud storage is unavailable and this file is not cached locally"))
 				client = get_cloud_storage_client()
 				file_bytes = client.get_object(Bucket=client.bucket, Key=self.s3_key)["Body"].read()
 				warm_local_cache(self, file_bytes)
@@ -752,6 +758,10 @@ def delete_file(file: File, **kwargs) -> File:
 	if file.is_folder:
 		return file
 
+	if is_local_cache_enabled() and is_cloud_storage_degraded():
+		tombstone_cache_record(file)
+		return file
+
 	if file.file_url and "?key=" in file.file_url:
 		key = file.file_url.split("?key=")[1]
 		if key:
@@ -840,6 +850,11 @@ def retrieve(key: str) -> None:
 		return
 
 	if serve_cached_response(key):
+		return
+
+	if is_cloud_storage_degraded():
+		frappe.local.response["http_status_code"] = 503
+		frappe.local.response["body"] = "Cloud storage is unavailable and this file is not cached locally"
 		return
 
 	client = get_cloud_storage_client()
