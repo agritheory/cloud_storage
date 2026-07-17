@@ -31,10 +31,9 @@
   },
   {
    "fieldname": "file",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "File",
-   "options": "File",
    "read_only": 1,
    "reqd": 1,
    "unique": 1
@@ -132,7 +131,7 @@
  ],
  "grid_page_length": 50,
  "links": [],
- "modified": "2026-07-16 13:31:58.882504",
+ "modified": "2026-07-17 11:31:00.000000",
  "modified_by": "Administrator",
  "module": "Cloud Storage",
  "name": "Local File Cache",
