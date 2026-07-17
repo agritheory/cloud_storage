@@ -30,13 +30,18 @@ from PIL import UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
 
 from cloud_storage.cloud_storage.local_cache import (
+	admit_local_cache_record,
+	delete_cache_record,
 	enforce_local_read_permission,
+	enqueue_replication,
 	get_cached_content,
 	get_live_cache_record,
+	is_emergency_ceiling_unrecoverable,
 	is_local_cache_enabled,
 	read_cache_bytes,
 	touch_cache_access,
 	warm_local_cache,
+	write_local_cache_bytes,
 )
 
 FILE_URL = "/api/method/retrieve?key={path}"
@@ -187,6 +192,10 @@ class CloudStorageFile(File):
 					).insert(ignore_permissions=True)
 
 				frappe.delete_doc("File", self.name, ignore_permissions=True)
+
+		if self.flags.get("pending_local_cache_path") and frappe.db.exists("File", self.name):
+			admit_local_cache_record(self, self.flags.pending_local_cache_path)
+			enqueue_replication(self.name)
 
 	def on_trash(self) -> None:
 		"""
@@ -691,6 +700,7 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 			}
 		)
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
+		file_doc.flags.bypass_local_cache = file.flags.bypass_local_cache
 		file = file_doc
 
 	if remove_spaces_in_file_name:
@@ -698,7 +708,37 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 	file.file_name = strip_special_chars(file.file_name)
 	file.flags.cloud_storage = True
-	return upload_file(file)
+
+	if file.flags.bypass_local_cache or not is_local_cache_enabled():
+		return upload_file(file)
+
+	return cache_file_locally(file)
+
+
+def cache_file_locally(file: File) -> File:
+	"""Write bytes to the local cache and enqueue replication instead of uploading
+	synchronously. New files don't have a name yet at this point (before_insert
+	runs before autoname), so cache-row admission is deferred to after_insert()."""
+	if is_emergency_ceiling_unrecoverable():
+		frappe.throw(_("Local cache emergency ceiling reached and cannot be recovered by eviction."))
+
+	validate_config()
+	folder = frappe.conf.cloud_storage_settings.get("folder")
+	path = get_file_path(file, folder)
+	file.db_set("file_url", FILE_URL.format(path=path))
+	file.db_set("s3_key", path)
+	if not file.is_new() and file.content_hash:
+		file.db_set("content_hash", file.content_hash)
+
+	local_path = write_local_cache_bytes(file)
+
+	if file.name:
+		admit_local_cache_record(file, local_path)
+		enqueue_replication(file.name)
+	else:
+		file.flags.pending_local_cache_path = local_path
+
+	return file
 
 
 @frappe.whitelist()
@@ -723,6 +763,8 @@ def delete_file(file: File, **kwargs) -> File:
 			except Exception as e:
 				print(f"EXCEPTION: {e}")
 				frappe.log_error(str(e), "Cloud Storage Error: Could not delete file")
+
+	delete_cache_record(file.name)
 
 	return file
 

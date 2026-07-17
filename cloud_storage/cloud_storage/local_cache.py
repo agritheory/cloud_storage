@@ -5,7 +5,7 @@ import os
 
 import frappe
 from frappe.core.doctype.file.file import File
-from frappe.utils import get_datetime
+from frappe.utils import add_to_date, get_datetime
 
 
 def get_local_cache_path(content_hash: str) -> str:
@@ -113,3 +113,111 @@ def warm_local_cache(file: File, content: bytes) -> None:
 		frappe.get_doc({"doctype": "Local File Cache", "file": file.name, **fields}).insert(
 			ignore_permissions=True
 		)
+
+
+def get_cached_bytes_total() -> int:
+	total = frappe.db.sql("select coalesce(sum(file_size), 0) from `tabLocal File Cache` where evicted = 0")
+	return int(total[0][0])
+
+
+def get_unevictable_bytes_total() -> int:
+	total = frappe.db.sql(
+		"select coalesce(sum(file_size), 0) from `tabLocal File Cache` where evicted = 0 and replicated = 0"
+	)
+	return int(total[0][0])
+
+
+def is_emergency_ceiling_unrecoverable() -> bool:
+	"""True when evicting every replicated row still can't clear the emergency ceiling."""
+	return get_unevictable_bytes_total() > get_emergency_cache_size_bytes()
+
+
+def evict_candidates(filters: dict, target_bytes: int, current_total: int) -> int:
+	"""Evict oldest-accessed matches until current_total <= target_bytes. Returns the new total."""
+	candidates = frappe.get_all(
+		"Local File Cache",
+		filters=filters,
+		fields=["name", "file_size", "local_path"],
+		order_by="accessed_at asc",
+	)
+	for candidate in candidates:
+		if current_total <= target_bytes:
+			break
+		if candidate.local_path and os.path.exists(candidate.local_path):
+			os.remove(candidate.local_path)
+		frappe.db.set_value(
+			"Local File Cache",
+			candidate.name,
+			{"evicted": 1, "evicted_at": get_datetime()},
+			update_modified=False,
+		)
+		current_total -= candidate.file_size
+	return current_total
+
+
+def write_local_cache_bytes(file: File) -> str:
+	"""Write `file`'s bytes to its content-addressed cache path. Returns the path."""
+	if file.name:
+		# overwrite of an already-cached file under a new hash: drop the stale bytes now
+		existing_name = frappe.db.exists("Local File Cache", {"file": file.name})
+		if existing_name:
+			old_hash = frappe.db.get_value("Local File Cache", existing_name, "content_hash")
+			if old_hash and old_hash != file.content_hash:
+				old_path = get_local_cache_path(old_hash)
+				if os.path.exists(old_path):
+					os.remove(old_path)
+
+	local_path = get_local_cache_path(file.content_hash)
+	with open(local_path, "wb") as fh:
+		fh.write(file.content)
+	return local_path
+
+
+def admit_local_cache_record(file: File, local_path: str) -> None:
+	"""Create/update `file`'s Local File Cache row with replicated=0. Requires file.name."""
+	fields = {
+		"local_path": local_path,
+		"file_size": len(file.content),
+		"s3_key": file.s3_key,
+		"content_hash": file.content_hash,
+		"replicated": 0,
+		"replicated_at": None,
+		"replication_attempts": 0,
+		"last_replication_error": None,
+		"accessed_at": get_datetime(),
+		"evicted": 0,
+		"evicted_at": None,
+	}
+
+	existing_name = frappe.db.exists("Local File Cache", {"file": file.name})
+	if existing_name:
+		cache = frappe.get_doc("Local File Cache", existing_name)
+		cache.update(fields)
+		cache.save(ignore_permissions=True)
+	else:
+		frappe.get_doc({"doctype": "Local File Cache", "file": file.name, **fields}).insert(
+			ignore_permissions=True
+		)
+
+
+def enqueue_replication(local_file_cache_name: str) -> None:
+	frappe.enqueue(
+		"cloud_storage.cloud_storage.tasks.replicate_cached_file",
+		local_file_cache_name=local_file_cache_name,
+		queue="short",
+	)
+
+
+def delete_cache_record(file_name: str) -> None:
+	cache_name = frappe.db.exists("Local File Cache", {"file": file_name})
+	if not cache_name:
+		return
+	local_path = frappe.db.get_value("Local File Cache", cache_name, "local_path")
+	if local_path and os.path.exists(local_path):
+		os.remove(local_path)
+	frappe.delete_doc("Local File Cache", cache_name, ignore_permissions=True)
+
+
+def get_retention_cutoff():
+	config = frappe.conf.cloud_storage_settings or {}
+	return add_to_date(get_datetime(), minutes=-config.get("cache_retention_minutes", 60))
