@@ -10,6 +10,7 @@ from cloud_storage.cloud_storage.local_cache import (
 	get_emergency_cache_size_bytes,
 	get_max_cache_size_bytes,
 	get_retention_cutoff,
+	is_local_cache_enabled,
 	read_cache_bytes,
 )
 from cloud_storage.cloud_storage.overrides.file import get_cloud_storage_client
@@ -52,6 +53,9 @@ def replicate_cached_file(local_file_cache_name: str):
 
 
 def evict_lru_cache():
+	if frappe.db.get_single_value("Cloud Storage Health", "status") == "Degraded":
+		return
+
 	total = get_cached_bytes_total()
 
 	max_bytes = get_max_cache_size_bytes()
@@ -66,7 +70,33 @@ def evict_lru_cache():
 
 
 def check_cloud_health():
-	pass
+	if not is_local_cache_enabled():
+		return
+
+	health = frappe.get_single("Cloud Storage Health")
+	now = frappe.utils.now_datetime()
+	client = get_cloud_storage_client()
+
+	try:
+		client.head_bucket(Bucket=client.bucket)
+	except Exception as e:
+		consecutive_failures = (health.consecutive_failures or 0) + 1
+		updates = {
+			"consecutive_failures": consecutive_failures,
+			"last_error": str(e),
+			"last_check_at": now,
+		}
+		if consecutive_failures >= (health.failure_threshold or 3) and health.status != "Degraded":
+			updates["status"] = "Degraded"
+			updates["degraded_since"] = now
+		frappe.db.set_single_value("Cloud Storage Health", updates, update_modified=False)
+		return
+
+	updates = {"consecutive_failures": 0, "last_error": None, "last_check_at": now}
+	if health.status == "Degraded":
+		updates["status"] = "Healthy"
+		updates["degraded_since"] = None
+	frappe.db.set_single_value("Cloud Storage Health", updates, update_modified=False)
 
 
 def process_pending_deletes():
