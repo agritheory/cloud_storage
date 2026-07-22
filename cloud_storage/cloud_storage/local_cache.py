@@ -133,9 +133,10 @@ def get_unevictable_bytes_total() -> int:
 	return int(total[0][0])
 
 
-def is_emergency_ceiling_unrecoverable() -> bool:
-	"""True when evicting every replicated row still can't clear the emergency ceiling."""
-	return get_unevictable_bytes_total() > get_emergency_cache_size_bytes()
+def is_emergency_ceiling_unrecoverable(incoming_bytes: int = 0) -> bool:
+	"""True when evicting every replicated row still can't clear the emergency ceiling
+	once `incoming_bytes` (the upload being admitted) is accounted for."""
+	return get_unevictable_bytes_total() + incoming_bytes > get_emergency_cache_size_bytes()
 
 
 def evict_candidates(filters: dict, target_bytes: int, current_total: int) -> int:
@@ -196,14 +197,19 @@ def admit_local_cache_record(file: File, local_path: str) -> None:
 	}
 
 	existing_name = frappe.db.exists("Local File Cache", {"file": file.name})
-	if existing_name:
-		cache = frappe.get_doc("Local File Cache", existing_name)
-		cache.update(fields)
-		cache.save(ignore_permissions=True)
-	else:
-		frappe.get_doc({"doctype": "Local File Cache", "file": file.name, **fields}).insert(
-			ignore_permissions=True
-		)
+	try:
+		if existing_name:
+			cache = frappe.get_doc("Local File Cache", existing_name)
+			cache.update(fields)
+			cache.save(ignore_permissions=True)
+		else:
+			frappe.get_doc({"doctype": "Local File Cache", "file": file.name, **fields}).insert(
+				ignore_permissions=True
+			)
+	except Exception:
+		if os.path.exists(local_path):
+			os.remove(local_path)
+		raise
 
 
 def enqueue_replication(local_file_cache_name: str) -> None:
@@ -211,6 +217,7 @@ def enqueue_replication(local_file_cache_name: str) -> None:
 		"cloud_storage.cloud_storage.tasks.replicate_cached_file",
 		local_file_cache_name=local_file_cache_name,
 		queue="short",
+		enqueue_after_commit=True,
 	)
 
 

@@ -109,6 +109,9 @@ def check_cloud_health():
 			"update `tabLocal File Cache` set replication_attempts=0, last_replication_error=null"
 			" where replicated=0 and pending_delete=0"
 		)
+		frappe.db.set_single_value("Cloud Storage Health", updates, update_modified=False)
+		retry_pending_replications()
+		return
 	frappe.db.set_single_value("Cloud Storage Health", updates, update_modified=False)
 
 

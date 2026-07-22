@@ -725,7 +725,7 @@ def cache_file_locally(file: File) -> File:
 	"""Write bytes to the local cache and enqueue replication instead of uploading
 	synchronously. New files don't have a name yet at this point (before_insert
 	runs before autoname), so cache-row admission is deferred to after_insert()."""
-	if is_emergency_ceiling_unrecoverable():
+	if is_emergency_ceiling_unrecoverable(len(file.content)):
 		frappe.throw(_("Local cache emergency ceiling reached and cannot be recovered by eviction."))
 
 	validate_config()
@@ -771,6 +771,9 @@ def delete_file(file: File, **kwargs) -> File:
 			except ClientError:
 				frappe.throw(_("Access denied: Could not delete file"))
 			except Exception as e:
+				if is_local_cache_enabled():
+					tombstone_cache_record(file)
+					return file
 				print(f"EXCEPTION: {e}")
 				frappe.log_error(str(e), "Cloud Storage Error: Could not delete file")
 
@@ -840,6 +843,8 @@ def serve_cached_response(key: str) -> bool:
 	frappe.local.response["type"] = "download"
 	frappe.local.response["filecontent"] = content
 	frappe.local.response["filename"] = file_doc.file_name if file_doc else key.rsplit("/", 1)[-1]
+	frappe.local.response["display_content_as"] = "inline"
+	frappe.local.response["content_type"] = from_buffer(content, mime=True)
 	return True
 
 

@@ -12,7 +12,12 @@ import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 from werkzeug.datastructures import FileMultiDict
 
-from cloud_storage.cloud_storage.local_cache import get_cached_bytes_total, get_unevictable_bytes_total
+from cloud_storage.cloud_storage.local_cache import (
+	admit_local_cache_record,
+	get_cached_bytes_total,
+	get_local_cache_path,
+	get_unevictable_bytes_total,
+)
 from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, retrieve, validate_config
 from cloud_storage.cloud_storage.tasks import (
 	check_cloud_health,
@@ -212,6 +217,7 @@ def test_retrieve_serves_cached_bytes_without_redirect(mocked_s3_client, example
 
 		assert frappe.local.response.get("type") == "download"
 		assert bytes(frappe.local.response.get("filecontent")) == content
+		assert frappe.local.response.get("display_content_as") == "inline"
 		accessed_at = frappe.db.get_value("Local File Cache", cache_name, "accessed_at")
 		assert str(accessed_at) > "2020-01-01 00:00:00"
 
@@ -857,6 +863,133 @@ def test_reconciliation_removes_orphaned_files(mocked_s3_client):
 
 	assert not os.path.exists(orphan_path)
 	assert get_cached_bytes_total() == baseline
+
+
+def test_replication_enqueued_after_commit(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch("frappe.enqueue") as mock_enqueue:
+		create_attached_upload(b"enqueue after commit", file_name="enqueue_after_commit.bin")
+
+	assert mock_enqueue.call_args.kwargs["enqueue_after_commit"] is True
+
+
+def test_local_path_accepts_paths_longer_than_140_chars():
+	long_path = "/" + ("a" * 200) + "/file.bin"
+	doc = frappe.get_doc(
+		{"doctype": "Local File Cache", "file": "local-path-length-test", "local_path": long_path}
+	).insert(ignore_permissions=True)
+	try:
+		doc.reload()
+		assert doc.local_path == long_path
+	finally:
+		frappe.delete_doc("Local File Cache", doc.name, ignore_permissions=True)
+
+
+def test_emergency_ceiling_accounts_for_incoming_file_size(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		create_attached_upload(b"C" * 500, file_name="ceiling_incoming_blocker.bin")
+		unevictable = get_unevictable_bytes_total()
+
+		# ceiling sits comfortably above the current unevictable total alone, but not once the
+		# incoming file's own size is added - the old check only looked at the former
+		with override_cache_settings(emergency_cache_size_gb=(unevictable + 5) / 1024**3):
+			with pytest.raises(frappe.ValidationError):
+				create_attached_upload(b"D" * 10, file_name="ceiling_incoming_rejected.bin")
+
+	assert not frappe.db.exists("File", {"file_name": "ceiling_incoming_rejected.bin"})
+	assert not frappe.db.exists("Local File Cache", {"s3_key": ["like", "%ceiling_incoming_rejected%"]})
+
+
+def test_admit_cache_record_cleans_up_bytes_on_insert_failure(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		file = create_uncached_cloud_file(b"admit failure cleanup", file_name="admit_failure.bin")
+
+	local_path = get_local_cache_path(file.content_hash)
+	with open(local_path, "wb") as fh:
+		fh.write(b"admit failure cleanup")
+
+	with patch("frappe.model.document.Document.insert", side_effect=Exception("boom")):
+		with pytest.raises(Exception, match="boom"):
+			admit_local_cache_record(file, local_path)
+
+	assert not os.path.exists(local_path)
+
+
+def test_delete_tombstones_on_transient_error_while_healthy(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content = b"delete tombstones transient error while healthy"
+		file = create_upload_file(content, file_name="delete_transient_healthy.bin")
+
+	cache = get_cache(file.name)
+	local_path = cache.local_path
+	s3_key = cache.s3_key
+	assert frappe.get_single("Cloud Storage Health").status != "Degraded"
+
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch.object(mocked_s3_client, "delete_object", side_effect=down_endpoint_error()):
+		frappe.delete_doc("File", file.name, ignore_permissions=True)
+
+	assert not frappe.db.exists("File", file.name)
+	assert not os.path.exists(local_path)
+
+	cache.reload()
+	assert frappe.db.exists("Local File Cache", cache.name)
+	assert cache.pending_delete == 1
+	assert cache.s3_key == s3_key
+
+
+def test_delete_aborts_on_client_error_even_with_cache_enabled(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		file = create_upload_file(b"delete aborts on client error", file_name="delete_client_error.bin")
+
+	client_error = ClientError({"Error": {"Code": "AccessDenied", "Message": "Denied"}}, "DeleteObject")
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch.object(mocked_s3_client, "delete_object", side_effect=client_error):
+		with pytest.raises(frappe.ValidationError):
+			frappe.delete_doc("File", file.name, ignore_permissions=True)
+
+
+def test_check_cloud_health_drains_backlog_immediately_on_recovery(mocked_s3_client):
+	frappe.db.sql("update `tabLocal File Cache` set replicated=1 where replicated=0 and pending_delete=0")
+
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), patch.object(mocked_s3_client, "put_object", side_effect=down_endpoint_error()):
+		file = create_attached_upload(b"drain immediately on recovery", file_name="drain_immediately.bin")
+
+	cache = get_cache(file.name)
+	assert cache.replicated == 0
+
+	frappe.db.set_single_value(
+		"Cloud Storage Health",
+		{"status": "Degraded", "consecutive_failures": 5, "degraded_since": frappe.utils.now_datetime()},
+	)
+
+	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+		check_cloud_health()
+
+	assert frappe.get_single("Cloud Storage Health").status == "Healthy"
+	cache.reload()
+	assert cache.replicated == 1
 
 
 def test_local_cache_enabled_rejects_use_local():

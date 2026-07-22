@@ -40,7 +40,7 @@
   },
   {
    "fieldname": "local_path",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "Local Path",
    "read_only": 1
   },
