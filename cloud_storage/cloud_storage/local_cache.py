@@ -88,6 +88,8 @@ def warm_local_cache(file: File, content: bytes) -> None:
 	"""
 	if not is_local_cache_enabled() or not is_warm_on_read_enabled():
 		return
+	if len(content) > get_max_cache_size_bytes() * 0.05:
+		return
 
 	existing_name = frappe.db.exists("Local File Cache", {"file": file.name})
 	if existing_name and not frappe.db.get_value("Local File Cache", existing_name, "evicted"):

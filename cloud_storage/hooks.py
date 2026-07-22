@@ -147,6 +147,10 @@ scheduler_events = {
 
 # before_tests = "cloud_storage.install.before_tests"
 
+after_migrate = [
+	"cloud_storage.cloud_storage.tasks.reconcile_local_cache",
+]
+
 # Overriding Methods
 # ------------------------------
 

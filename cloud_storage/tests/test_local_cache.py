@@ -13,7 +13,7 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 from werkzeug.datastructures import FileMultiDict
 
 from cloud_storage.cloud_storage.local_cache import get_cached_bytes_total, get_unevictable_bytes_total
-from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, retrieve
+from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, retrieve, validate_config
 from cloud_storage.cloud_storage.tasks import (
 	check_cloud_health,
 	evict_lru_cache,
@@ -167,7 +167,8 @@ def test_warm_on_read_populates_cache(mocked_s3_client, example_bytes):
 
 		assert not frappe.db.exists("Local File Cache", {"file": file.name})
 
-		fetched = reload_file(file).get_content()
+		with override_cache_settings(max_cache_size_gb=1):
+			fetched = reload_file(file).get_content()
 
 		assert bytes(fetched) == content
 		cache_name = frappe.db.exists("Local File Cache", {"file": file.name})
@@ -176,6 +177,22 @@ def test_warm_on_read_populates_cache(mocked_s3_client, example_bytes):
 		assert cache.replicated == 1
 		assert cache.file_size == len(content)
 		assert Path(cache.local_path).read_bytes() == content
+
+
+def test_warm_on_read_skips_oversized_file(mocked_s3_client, example_bytes):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content = example_bytes + b"warm_on_read_oversized"
+		file = create_uncached_cloud_file(content, file_name="warm_on_read_oversized.png")
+
+		# budget == content size, so the 5% admission threshold is far below it
+		with override_cache_settings(max_cache_size_gb=len(content) / 1024**3):
+			fetched = reload_file(file).get_content()
+
+		assert bytes(fetched) == content
+		assert not frappe.db.exists("Local File Cache", {"file": file.name})
 
 
 def test_retrieve_serves_cached_bytes_without_redirect(mocked_s3_client, example_bytes):
@@ -247,7 +264,8 @@ def test_warm_on_read_readmits_evicted_cache_row(mocked_s3_client, example_bytes
 	):
 		content = example_bytes + b"readmit_evicted"
 		file = create_uncached_cloud_file(content, file_name="readmit_evicted.png")
-		reload_file(file).get_content()
+		with override_cache_settings(max_cache_size_gb=1):
+			reload_file(file).get_content()
 
 		cache_name = frappe.db.exists("Local File Cache", {"file": file.name})
 		cache = frappe.get_doc("Local File Cache", cache_name)
@@ -256,7 +274,8 @@ def test_warm_on_read_readmits_evicted_cache_row(mocked_s3_client, example_bytes
 		cache.evicted_at = frappe.utils.now_datetime()
 		cache.save(ignore_permissions=True)
 
-		fetched = reload_file(file).get_content()
+		with override_cache_settings(max_cache_size_gb=1):
+			fetched = reload_file(file).get_content()
 
 		assert bytes(fetched) == content
 		cache.reload()
@@ -838,3 +857,9 @@ def test_reconciliation_removes_orphaned_files(mocked_s3_client):
 
 	assert not os.path.exists(orphan_path)
 	assert get_cached_bytes_total() == baseline
+
+
+def test_local_cache_enabled_rejects_use_local():
+	with override_cache_settings(use_local=True, local_cache_enabled=True):
+		with pytest.raises(frappe.ValidationError):
+			validate_config()
