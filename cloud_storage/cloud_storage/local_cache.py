@@ -122,15 +122,11 @@ def warm_local_cache(file: File, content: bytes) -> None:
 
 
 def get_cached_bytes_total() -> int:
-	total = frappe.db.sql("select coalesce(sum(file_size), 0) from `tabLocal File Cache` where evicted = 0")
-	return int(total[0][0])
+	return int(frappe.qb.sum("Local File Cache", "file_size", filters={"evicted": 0}))
 
 
 def get_unevictable_bytes_total() -> int:
-	total = frappe.db.sql(
-		"select coalesce(sum(file_size), 0) from `tabLocal File Cache` where evicted = 0 and replicated = 0"
-	)
-	return int(total[0][0])
+	return int(frappe.qb.sum("Local File Cache", "file_size", filters={"evicted": 0, "replicated": 0}))
 
 
 def is_emergency_ceiling_unrecoverable(incoming_bytes: int = 0) -> bool:

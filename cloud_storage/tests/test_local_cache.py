@@ -473,9 +473,11 @@ def test_eviction_never_touches_unreplicated_files(mocked_s3_client):
 
 def test_emergency_ceiling_ignores_retention_floor(mocked_s3_client):
 	# clear other replicated rows so eviction's "oldest" is unambiguous
-	frappe.db.sql(
-		"update `tabLocal File Cache` set evicted=1, evicted_at=%s where evicted=0 and replicated=1",
-		(frappe.utils.now_datetime(),),
+	frappe.db.set_value(
+		"Local File Cache",
+		{"evicted": 0, "replicated": 1},
+		{"evicted": 1, "evicted_at": frappe.utils.now_datetime()},
+		update_modified=False,
 	)
 
 	with patch(
@@ -692,7 +694,9 @@ def test_eviction_paused_while_degraded(mocked_s3_client):
 
 def test_recovery_drains_backlog_oldest_first(mocked_s3_client):
 	# neutralize stray unreplicated rows from other tests so the sweep below is unambiguous
-	frappe.db.sql("update `tabLocal File Cache` set replicated=1 where replicated=0 and pending_delete=0")
+	frappe.db.set_value(
+		"Local File Cache", {"replicated": 0, "pending_delete": 0}, "replicated", 1, update_modified=False
+	)
 
 	with patch(
 		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
@@ -762,7 +766,9 @@ def test_recovery_processes_tombstones(mocked_s3_client):
 
 def test_replication_retries_stop_at_max_retries(mocked_s3_client):
 	# neutralize stray unreplicated rows from other tests, same as the backlog-order test above
-	frappe.db.sql("update `tabLocal File Cache` set replicated=1 where replicated=0 and pending_delete=0")
+	frappe.db.set_value(
+		"Local File Cache", {"replicated": 0, "pending_delete": 0}, "replicated", 1, update_modified=False
+	)
 
 	with patch(
 		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
@@ -968,7 +974,9 @@ def test_delete_aborts_on_client_error_even_with_cache_enabled(mocked_s3_client)
 
 
 def test_check_cloud_health_drains_backlog_immediately_on_recovery(mocked_s3_client):
-	frappe.db.sql("update `tabLocal File Cache` set replicated=1 where replicated=0 and pending_delete=0")
+	frappe.db.set_value(
+		"Local File Cache", {"replicated": 0, "pending_delete": 0}, "replicated", 1, update_modified=False
+	)
 
 	with patch(
 		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
