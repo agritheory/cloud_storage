@@ -282,6 +282,51 @@ def test_save_duplicate_content_hash_no_recursion():
 
 
 @mock_s3
+def test_library_select_preserves_file_url():
+	"""Picking a Library file for an Attach field must return a doc with file_url intact.
+
+	after_insert merges the duplicate and blanks file_url in the DB; that blank must
+	not leak into the returned doc, else the Attach control sets the field to "".
+	"""
+	frappe.set_user("Administrator")
+	file_url = "/api/method/retrieve?key=test_folder/User/Administrator/library-pick.png"
+
+	# The existing Library file the user picks.
+	library = frappe.get_doc(
+		{
+			"doctype": "File",
+			"file_name": "library-pick.png",
+			"file_url": file_url,
+			"s3_key": "test_folder/User/Administrator/library-pick.png",
+			"attached_to_doctype": "User",
+			"attached_to_name": "Administrator",
+			"is_folder": 0,
+		}
+	)
+	library.flags.cloud_storage = True  # skip disk/url validation
+	library.insert(ignore_permissions=True)
+
+	# Simulate the library branch of upload_file: new File, same url, no content,
+	# attached to a different document via an Attach field.
+	picked = frappe.get_doc(
+		{
+			"doctype": "File",
+			"file_name": "library-pick.png",
+			"file_url": file_url,
+			"attached_to_doctype": "Module Def",
+			"attached_to_name": "Cloud Storage",
+			"attached_to_field": "some_attach_field",
+			"is_folder": 0,
+		}
+	)
+	picked.flags.cloud_storage = True
+	picked.insert(ignore_permissions=True)
+
+	# The returned in-memory doc must still carry the URL (the bug left it "").
+	assert picked.file_url == file_url
+
+
+@mock_s3
 def test_associate_files_no_duplicate_association():
 	"""Associating the same link twice must not grow a duplicate file_association row."""
 	frappe.set_user("Administrator")
