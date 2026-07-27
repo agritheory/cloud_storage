@@ -46,3 +46,4 @@ CI=Yes bench build --app frappe &
 
 bench --site test_site reinstall --yes
 bench --site test_site install-app cloud_storage
+bench --site test_site execute 'cloud_storage.tests.setup.before_test'
