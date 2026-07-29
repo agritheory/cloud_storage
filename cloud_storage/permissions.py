@@ -40,7 +40,7 @@ def docshare_file_condition(user):
 		AND shared_folder.is_folder = 1
 		AND (
 			`tabFile`.folder = shared_folder.name
-			OR `tabFile`.folder LIKE CONCAT(shared_folder.name, '/', '%')
+			OR `tabFile`.folder LIKE CONCAT(shared_folder.name, '/', '%%')
 		)
 	)"""
 	return f"(({direct_share}) OR ({folder_inherit}))"
