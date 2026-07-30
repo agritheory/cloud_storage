@@ -871,6 +871,29 @@ def test_reconciliation_removes_orphaned_files(mocked_s3_client):
 	assert get_cached_bytes_total() == baseline
 
 
+def test_reconciliation_survives_differently_spelled_local_path(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content = b"reconciliation survives differently spelled path"
+		file = create_attached_upload(content, file_name="reconcile_dotted_path.bin")
+
+	cache = get_cache(file.name)
+	real_path = cache.local_path
+	directory, filename = os.path.split(real_path)
+	differently_spelled_path = os.path.join(directory, ".", filename)
+	frappe.db.set_value(
+		"Local File Cache", cache.name, "local_path", differently_spelled_path, update_modified=False
+	)
+
+	reconcile_local_cache()
+
+	cache.reload()
+	assert cache.evicted == 0
+	assert os.path.exists(real_path)
+
+
 def test_replication_enqueued_after_commit(mocked_s3_client):
 	with patch(
 		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",

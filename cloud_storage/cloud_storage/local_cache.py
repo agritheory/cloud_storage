@@ -56,6 +56,7 @@ def touch_cache_access(cache_name: str) -> None:
 	frappe.db.set_value(
 		"Local File Cache", cache_name, "accessed_at", get_datetime(), update_modified=False
 	)
+	frappe.local.flags.commit = True
 
 
 def enforce_local_read_permission(file_doc: File) -> None:
@@ -119,6 +120,7 @@ def warm_local_cache(file: File, content: bytes) -> None:
 		frappe.get_doc({"doctype": "Local File Cache", "file": file.name, **fields}).insert(
 			ignore_permissions=True
 		)
+	frappe.local.flags.commit = True
 
 
 def get_cached_bytes_total() -> int:

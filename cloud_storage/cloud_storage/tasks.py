@@ -162,7 +162,7 @@ def reconcile_local_cache():
 	known_paths = set()
 	for row in live_rows:
 		if row.local_path and os.path.exists(row.local_path):
-			known_paths.add(row.local_path)
+			known_paths.add(Path(row.local_path))
 		else:
 			frappe.db.set_value(
 				"Local File Cache",
@@ -175,5 +175,5 @@ def reconcile_local_cache():
 	if not cache_root.is_dir():
 		return
 	for path in cache_root.rglob("*"):
-		if path.is_file() and str(path) not in known_paths:
+		if path.is_file() and path not in known_paths:
 			path.unlink()
