@@ -1,6 +1,7 @@
 # Copyright (c) 2025, AgriTheory and contributors
 # For license information, please see license.txt
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -48,10 +49,15 @@ def monkeymodule():
 def db_instance():
 	frappe.logger = _get_logger
 
-	currentsite = "test_site"
 	sites = Path(get_bench_path()) / "sites"
+	currentsite = "test_site"
 	if (sites / "currentsite.txt").is_file():
-		currentsite = (sites / "currentsite.txt").read_text()
+		currentsite = (sites / "currentsite.txt").read_text().strip()
+	else:
+		common_config = sites / "common_site_config.json"
+		if common_config.is_file():
+			config = json.loads(common_config.read_text())
+			currentsite = config.get("default_site", currentsite)
 
 	frappe.init(site=currentsite, sites_path=sites)
 	frappe.connect()

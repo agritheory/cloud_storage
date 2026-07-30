@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import frappe
 import pytest
-from conftest import mocked_s3_client
 from moto import mock_s3
 from werkzeug.datastructures import FileMultiDict
 

@@ -88,9 +88,9 @@ debian_packages = ["libmagic1", "libreoffice"]
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
+permission_query_conditions = {
+	"File": "cloud_storage.permissions.file_permission_query_conditions",
+}
 
 # has_permission = {
 # "File": "cloud_storage.cloud_storage.overrides.file.has_permission",
