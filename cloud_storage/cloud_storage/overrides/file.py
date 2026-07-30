@@ -859,7 +859,9 @@ def retrieve(key: str) -> None:
 
 	if is_cloud_storage_degraded():
 		frappe.local.response["http_status_code"] = 503
-		frappe.local.response["body"] = "Cloud storage is unavailable and this file is not cached locally"
+		frappe.local.response[
+			"body"
+		] = "Cloud storage is unavailable and this file is not cached locally"
 		return
 
 	client = get_cloud_storage_client()

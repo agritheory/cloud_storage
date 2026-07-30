@@ -137,7 +137,10 @@ def process_pending_deletes():
 		return
 
 	pending = frappe.get_all(
-		"Local File Cache", filters={"pending_delete": 1}, fields=["name", "s3_key"], order_by="creation asc"
+		"Local File Cache",
+		filters={"pending_delete": 1},
+		fields=["name", "s3_key"],
+		order_by="creation asc",
 	)
 	if not pending:
 		return

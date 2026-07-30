@@ -128,7 +128,9 @@ def get_cached_bytes_total() -> int:
 
 
 def get_unevictable_bytes_total() -> int:
-	return int(frappe.qb.sum("Local File Cache", "file_size", filters={"evicted": 0, "replicated": 0}))
+	return int(
+		frappe.qb.sum("Local File Cache", "file_size", filters={"evicted": 0, "replicated": 0})
+	)
 
 
 def is_emergency_ceiling_unrecoverable(incoming_bytes: int = 0) -> bool:

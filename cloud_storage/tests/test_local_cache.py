@@ -90,7 +90,9 @@ def example_bytes():
 	return (Path(__file__).parent / "fixtures" / "aticonrusthex.png").read_bytes()
 
 
-def create_upload_file(content: bytes, is_private: bool = False, file_name: str = "file.png") -> CloudStorageFile:
+def create_upload_file(
+	content: bytes, is_private: bool = False, file_name: str = "file.png"
+) -> CloudStorageFile:
 	# unattached: File.has_permission falls back to owner/share checks only
 	f = BytesIO(content)
 
@@ -159,7 +161,9 @@ def create_local_only_file(content: bytes, file_name: str) -> CloudStorageFile:
 
 
 def get_cache(file_name: str):
-	return frappe.get_doc("Local File Cache", frappe.db.exists("Local File Cache", {"file": file_name}))
+	return frappe.get_doc(
+		"Local File Cache", frappe.db.exists("Local File Cache", {"file": file_name})
+	)
 
 
 def test_warm_on_read_populates_cache(mocked_s3_client, example_bytes):
@@ -240,7 +244,9 @@ def test_retrieve_uncached_redirects_to_presigned_url(mocked_s3_client, example_
 	assert frappe.local.response.get("location")
 
 
-def test_private_file_local_serve_enforces_permission(mocked_s3_client, restricted_user, example_bytes):
+def test_private_file_local_serve_enforces_permission(
+	mocked_s3_client, restricted_user, example_bytes
+):
 	with patch(
 		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
 		return_value=mocked_s3_client,
@@ -365,7 +371,9 @@ def test_replication_uploads_and_marks_durable(mocked_s3_client):
 
 	cache_name = get_cache(file.name).name
 
-	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	):
 		replicate_cached_file(cache_name)
 
 	cache = frappe.get_doc("Local File Cache", cache_name)
@@ -495,7 +503,9 @@ def test_emergency_ceiling_ignores_retention_floor(mocked_s3_client):
 	unreplicated_cache.db_set("accessed_at", frappe.utils.now_datetime())
 
 	emergency_budget = get_cached_bytes_total() - replicated_cache.file_size + 10
-	with override_cache_settings(max_cache_size_gb=1, emergency_cache_size_gb=emergency_budget / 1024**3):
+	with override_cache_settings(
+		max_cache_size_gb=1, emergency_cache_size_gb=emergency_budget / 1024**3
+	):
 		evict_lru_cache()
 
 	replicated_cache.reload()
@@ -681,7 +691,9 @@ def test_eviction_paused_while_degraded(mocked_s3_client):
 	cache.db_set("accessed_at", "2019-01-01 00:00:00")
 
 	budget_bytes = baseline + 10
-	with degraded_cloud_storage(), override_cache_settings(max_cache_size_gb=budget_bytes / 1024**3):
+	with degraded_cloud_storage(), override_cache_settings(
+		max_cache_size_gb=budget_bytes / 1024**3
+	):
 		evict_lru_cache()
 
 	cache.reload()
@@ -695,7 +707,11 @@ def test_eviction_paused_while_degraded(mocked_s3_client):
 def test_recovery_drains_backlog_oldest_first(mocked_s3_client):
 	# neutralize stray unreplicated rows from other tests so the sweep below is unambiguous
 	frappe.db.set_value(
-		"Local File Cache", {"replicated": 0, "pending_delete": 0}, "replicated", 1, update_modified=False
+		"Local File Cache",
+		{"replicated": 0, "pending_delete": 0},
+		"replicated",
+		1,
+		update_modified=False,
 	)
 
 	with patch(
@@ -742,7 +758,9 @@ def test_recovery_processes_tombstones(mocked_s3_client):
 	cache = get_cache(file.name)
 	s3_key = cache.s3_key
 
-	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	):
 		replicate_cached_file(cache.name)
 
 	assert mocked_s3_client.head_object(Bucket=mocked_s3_client.bucket, Key=s3_key)
@@ -756,7 +774,9 @@ def test_recovery_processes_tombstones(mocked_s3_client):
 	cache.reload()
 	assert cache.pending_delete == 1
 
-	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	):
 		process_pending_deletes()
 
 	assert not frappe.db.exists("Local File Cache", cache.name)
@@ -767,7 +787,11 @@ def test_recovery_processes_tombstones(mocked_s3_client):
 def test_replication_retries_stop_at_max_retries(mocked_s3_client):
 	# neutralize stray unreplicated rows from other tests, same as the backlog-order test above
 	frappe.db.set_value(
-		"Local File Cache", {"replicated": 0, "pending_delete": 0}, "replicated", 1, update_modified=False
+		"Local File Cache",
+		{"replicated": 0, "pending_delete": 0},
+		"replicated",
+		1,
+		update_modified=False,
 	)
 
 	with patch(
@@ -817,7 +841,9 @@ def test_recovery_resets_replication_attempts_and_error(mocked_s3_client):
 		{"status": "Degraded", "consecutive_failures": 5, "degraded_since": frappe.utils.now_datetime()},
 	)
 
-	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	):
 		check_cloud_health()
 
 	assert frappe.get_single("Cloud Storage Health").status == "Healthy"
@@ -826,7 +852,9 @@ def test_recovery_resets_replication_attempts_and_error(mocked_s3_client):
 	assert cache.replication_attempts == 0
 	assert not cache.last_replication_error
 
-	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	):
 		retry_pending_replications()
 
 	cache.reload()
@@ -931,7 +959,9 @@ def test_emergency_ceiling_accounts_for_incoming_file_size(mocked_s3_client):
 				create_attached_upload(b"D" * 10, file_name="ceiling_incoming_rejected.bin")
 
 	assert not frappe.db.exists("File", {"file_name": "ceiling_incoming_rejected.bin"})
-	assert not frappe.db.exists("Local File Cache", {"s3_key": ["like", "%ceiling_incoming_rejected%"]})
+	assert not frappe.db.exists(
+		"Local File Cache", {"s3_key": ["like", "%ceiling_incoming_rejected%"]}
+	)
 
 
 def test_admit_cache_record_cleans_up_bytes_on_insert_failure(mocked_s3_client):
@@ -987,7 +1017,9 @@ def test_delete_aborts_on_client_error_even_with_cache_enabled(mocked_s3_client)
 	):
 		file = create_upload_file(b"delete aborts on client error", file_name="delete_client_error.bin")
 
-	client_error = ClientError({"Error": {"Code": "AccessDenied", "Message": "Denied"}}, "DeleteObject")
+	client_error = ClientError(
+		{"Error": {"Code": "AccessDenied", "Message": "Denied"}}, "DeleteObject"
+	)
 	with patch(
 		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
 		return_value=mocked_s3_client,
@@ -998,14 +1030,20 @@ def test_delete_aborts_on_client_error_even_with_cache_enabled(mocked_s3_client)
 
 def test_check_cloud_health_drains_backlog_immediately_on_recovery(mocked_s3_client):
 	frappe.db.set_value(
-		"Local File Cache", {"replicated": 0, "pending_delete": 0}, "replicated", 1, update_modified=False
+		"Local File Cache",
+		{"replicated": 0, "pending_delete": 0},
+		"replicated",
+		1,
+		update_modified=False,
 	)
 
 	with patch(
 		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
 		return_value=mocked_s3_client,
 	), patch.object(mocked_s3_client, "put_object", side_effect=down_endpoint_error()):
-		file = create_attached_upload(b"drain immediately on recovery", file_name="drain_immediately.bin")
+		file = create_attached_upload(
+			b"drain immediately on recovery", file_name="drain_immediately.bin"
+		)
 
 	cache = get_cache(file.name)
 	assert cache.replicated == 0
@@ -1015,7 +1053,9 @@ def test_check_cloud_health_drains_backlog_immediately_on_recovery(mocked_s3_cli
 		{"status": "Degraded", "consecutive_failures": 5, "degraded_since": frappe.utils.now_datetime()},
 	)
 
-	with patch("cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	):
 		check_cloud_health()
 
 	assert frappe.get_single("Cloud Storage Health").status == "Healthy"
