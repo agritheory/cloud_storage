@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import frappe
+from frappe.query_builder import DocType
 from magic import from_buffer
 
 from cloud_storage.cloud_storage.local_cache import (
@@ -18,6 +19,22 @@ from cloud_storage.cloud_storage.local_cache import (
 	read_cache_bytes,
 )
 from cloud_storage.cloud_storage.overrides.file import get_cloud_storage_client
+
+
+def mark_replicated_if_current(local_file_cache_name: str, content_hash: str, s3_key: str, now) -> bool:
+	LocalFileCache = DocType("Local File Cache")
+	(
+		frappe.qb.update(LocalFileCache)
+		.set(LocalFileCache.replicated, 1)
+		.set(LocalFileCache.replicated_at, now)
+		.set(LocalFileCache.last_replication_error, None)
+		.where(LocalFileCache.name == local_file_cache_name)
+		.where(LocalFileCache.content_hash == content_hash)
+		.where(LocalFileCache.s3_key == s3_key)
+		.where(LocalFileCache.replicated == 0)
+		.where(LocalFileCache.pending_delete == 0)
+	).run()
+	return frappe.db._cursor.rowcount > 0
 
 
 def replicate_cached_file(local_file_cache_name: str):
@@ -52,21 +69,27 @@ def replicate_cached_file(local_file_cache_name: str):
 		cache.db_set("last_replication_error", str(e))
 		return
 
-	if not frappe.db.exists("Local File Cache", local_file_cache_name) or not frappe.db.exists(
-		"File", cache.file
-	):
-		try:
-			client.delete_object(Bucket=client.bucket, Key=cache.s3_key)
-		except Exception as e:
-			frappe.log_error(str(e), "Cloud Storage Error: Could not delete orphaned replicated object")
+	s3_version_id = response.get("VersionId")
+	applied = mark_replicated_if_current(
+		local_file_cache_name, cache.content_hash, cache.s3_key, frappe.utils.now_datetime()
+	)
+	if not applied or not frappe.db.exists("File", cache.file):
+		if s3_version_id:
+			try:
+				client.delete_object(Bucket=client.bucket, Key=cache.s3_key, VersionId=s3_version_id)
+			except Exception as e:
+				frappe.log_error(
+					str(e), "Cloud Storage Error: Could not delete orphaned replicated object"
+				)
+		else:
+			frappe.log_error(
+				f"Orphaned replicated object without a VersionId, left in place: {cache.s3_key}",
+				"Cloud Storage Replication Error",
+			)
 		return
 
-	version_id = response.get("VersionId") or file.content_hash
+	version_id = s3_version_id or file.content_hash
 	file.add_file_version(version_id)
-
-	cache.db_set("replicated", 1)
-	cache.db_set("replicated_at", frappe.utils.now_datetime())
-	cache.db_set("last_replication_error", None)
 
 
 def evict_lru_cache():

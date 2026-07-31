@@ -124,12 +124,16 @@ def warm_local_cache(file: File, content: bytes) -> None:
 
 
 def get_cached_bytes_total() -> int:
-	return int(frappe.qb.sum("Local File Cache", "file_size", filters={"evicted": 0}))
+	return int(
+		frappe.qb.sum("Local File Cache", "file_size", filters={"evicted": 0, "pending_delete": 0})
+	)
 
 
 def get_unevictable_bytes_total() -> int:
 	return int(
-		frappe.qb.sum("Local File Cache", "file_size", filters={"evicted": 0, "replicated": 0})
+		frappe.qb.sum(
+			"Local File Cache", "file_size", filters={"evicted": 0, "replicated": 0, "pending_delete": 0}
+		)
 	)
 
 
@@ -143,7 +147,7 @@ def evict_candidates(filters: dict, target_bytes: int, current_total: int) -> in
 	"""Evict oldest-accessed matches until current_total <= target_bytes. Returns the new total."""
 	candidates = frappe.get_all(
 		"Local File Cache",
-		filters=filters,
+		filters={**filters, "pending_delete": 0},
 		fields=["name", "file_size", "local_path"],
 		order_by="accessed_at asc",
 	)
@@ -163,25 +167,13 @@ def evict_candidates(filters: dict, target_bytes: int, current_total: int) -> in
 
 
 def write_local_cache_bytes(file: File) -> str:
-	"""Write `file`'s bytes to its content-addressed cache path. Returns the path."""
-	if file.name:
-		# overwrite of an already-cached file under a new hash: drop the stale bytes now
-		existing_name = frappe.db.exists("Local File Cache", {"file": file.name})
-		if existing_name:
-			old_hash = frappe.db.get_value("Local File Cache", existing_name, "content_hash")
-			if old_hash and old_hash != file.content_hash:
-				old_path = get_local_cache_path(old_hash)
-				if os.path.exists(old_path):
-					os.remove(old_path)
-
 	local_path = get_local_cache_path(file.content_hash)
 	with open(local_path, "wb") as fh:
 		fh.write(file.content)
 	return local_path
 
 
-def admit_local_cache_record(file: File, local_path: str) -> None:
-	"""Create/update `file`'s Local File Cache row with replicated=0. Requires file.name."""
+def admit_local_cache_record(file: File, local_path: str) -> str | None:
 	fields = {
 		"local_path": local_path,
 		"file_size": len(file.content),
@@ -197,9 +189,11 @@ def admit_local_cache_record(file: File, local_path: str) -> None:
 	}
 
 	existing_name = frappe.db.exists("Local File Cache", {"file": file.name})
+	previous_local_path = None
 	try:
 		if existing_name:
 			cache = frappe.get_doc("Local File Cache", existing_name)
+			previous_local_path = cache.local_path
 			cache.update(fields)
 			cache.save(ignore_permissions=True)
 		else:
@@ -210,6 +204,10 @@ def admit_local_cache_record(file: File, local_path: str) -> None:
 		if os.path.exists(local_path):
 			os.remove(local_path)
 		raise
+
+	if previous_local_path == local_path:
+		return None
+	return previous_local_path
 
 
 def enqueue_replication(local_file_cache_name: str) -> None:

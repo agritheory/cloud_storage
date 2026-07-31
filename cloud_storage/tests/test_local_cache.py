@@ -18,6 +18,7 @@ from cloud_storage.cloud_storage.local_cache import (
 	get_local_cache_path,
 	get_unevictable_bytes_total,
 	is_cloud_storage_degraded,
+	write_local_cache_bytes,
 )
 from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, retrieve, validate_config
 from cloud_storage.cloud_storage.tasks import (
@@ -983,6 +984,32 @@ def test_admit_cache_record_cleans_up_bytes_on_insert_failure(mocked_s3_client):
 	assert not os.path.exists(local_path)
 
 
+def test_reupload_preserves_previous_bytes_when_admission_fails(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content_v1 = b"content that must survive a failed reupload admission"
+		file = create_attached_upload(content_v1, file_name="admission_failure_reupload.bin")
+
+	cache = get_cache(file.name)
+	local_path_v1 = cache.local_path
+	assert os.path.exists(local_path_v1)
+
+	file_doc = frappe.get_doc("File", file.name)
+	file_doc.content = b"new content whose admission will fail"
+	file_doc.content_hash = "admission-failure-v2-hash"
+	new_local_path = write_local_cache_bytes(file_doc)
+
+	with patch("frappe.model.document.Document.save", side_effect=Exception("boom")):
+		with pytest.raises(Exception, match="boom"):
+			admit_local_cache_record(file_doc, new_local_path)
+
+	assert not os.path.exists(new_local_path)
+	assert os.path.exists(local_path_v1)
+	assert Path(local_path_v1).read_bytes() == content_v1
+
+
 def test_delete_tombstones_on_transient_error_while_healthy(mocked_s3_client):
 	with patch(
 		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
@@ -1121,6 +1148,44 @@ def test_replication_deletes_object_when_row_and_file_vanish_mid_upload(mocked_s
 
 	with pytest.raises(ClientError):
 		mocked_s3_client.head_object(Bucket=mocked_s3_client.bucket, Key=s3_key)
+
+
+def test_replication_race_reupload_full_flow(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content_v1 = b"original content before the concurrent reupload"
+		file = create_attached_upload(content_v1, file_name="reupload_race_full.bin")
+
+	cache_name = get_cache(file.name).name
+	s3_key = get_cache(file.name).s3_key
+	content_v2 = b"replacement content uploaded while v1 was still replicating"
+
+	original_put_object = mocked_s3_client.put_object
+
+	def put_v1_then_reupload_v2(*args, **kwargs):
+		response = original_put_object(*args, **kwargs)
+		create_attached_upload(content_v2, file_name="reupload_race_full.bin")
+		return response
+
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	), patch.object(mocked_s3_client, "put_object", side_effect=put_v1_then_reupload_v2):
+		replicate_cached_file(cache_name)
+
+	cache = frappe.get_doc("Local File Cache", cache_name)
+	assert cache.replicated == 0
+
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	):
+		replicate_cached_file(cache_name)
+
+	cache.reload()
+	assert cache.replicated == 1
+	body = mocked_s3_client.get_object(Bucket=mocked_s3_client.bucket, Key=s3_key)["Body"].read()
+	assert body == content_v2
 
 
 def test_local_cache_enabled_rejects_use_local():

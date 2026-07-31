@@ -739,7 +739,9 @@ def cache_file_locally(file: File) -> File:
 	local_path = write_local_cache_bytes(file)
 
 	if file.name:
-		admit_local_cache_record(file, local_path)
+		previous_local_path = admit_local_cache_record(file, local_path)
+		if previous_local_path and os.path.exists(previous_local_path):
+			os.remove(previous_local_path)
 		enqueue_replication(file.name)
 	else:
 		file.flags.pending_local_cache_path = local_path
