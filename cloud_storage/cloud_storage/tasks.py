@@ -52,6 +52,15 @@ def replicate_cached_file(local_file_cache_name: str):
 		cache.db_set("last_replication_error", str(e))
 		return
 
+	if not frappe.db.exists("Local File Cache", local_file_cache_name) or not frappe.db.exists(
+		"File", cache.file
+	):
+		try:
+			client.delete_object(Bucket=client.bucket, Key=cache.s3_key)
+		except Exception as e:
+			frappe.log_error(str(e), "Cloud Storage Error: Could not delete orphaned replicated object")
+		return
+
 	version_id = response.get("VersionId") or file.content_hash
 	file.add_file_version(version_id)
 

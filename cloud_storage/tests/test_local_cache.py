@@ -17,6 +17,7 @@ from cloud_storage.cloud_storage.local_cache import (
 	get_cached_bytes_total,
 	get_local_cache_path,
 	get_unevictable_bytes_total,
+	is_cloud_storage_degraded,
 )
 from cloud_storage.cloud_storage.overrides.file import CloudStorageFile, retrieve, validate_config
 from cloud_storage.cloud_storage.tasks import (
@@ -1061,6 +1062,65 @@ def test_check_cloud_health_drains_backlog_immediately_on_recovery(mocked_s3_cli
 	assert frappe.get_single("Cloud Storage Health").status == "Healthy"
 	cache.reload()
 	assert cache.replicated == 1
+
+
+def test_degraded_status_ignored_when_cache_disabled():
+	frappe.db.set_single_value("Cloud Storage Health", "status", "Degraded")
+	try:
+		with override_cache_settings(local_cache_enabled=False):
+			assert is_cloud_storage_degraded() is False
+	finally:
+		frappe.db.set_single_value("Cloud Storage Health", "status", "Healthy")
+
+
+def test_retrieve_redirects_when_cache_disabled_even_if_status_stuck_degraded(mocked_s3_client):
+	frappe.db.set_single_value("Cloud Storage Health", "status", "Degraded")
+	try:
+		with patch(
+			"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+			return_value=mocked_s3_client,
+		):
+			content = b"stuck degraded status ignored when cache disabled"
+			file = create_uncached_cloud_file(content, file_name="stuck_degraded.bin")
+
+		# unpatched: presigned URL signing needs no S3 mock
+		with override_cache_settings(local_cache_enabled=False):
+			frappe.local.response = frappe._dict()
+			retrieve(file.s3_key)
+
+		assert frappe.local.response.get("type") == "redirect"
+		assert frappe.local.response.get("http_status_code") != 503
+	finally:
+		frappe.db.set_single_value("Cloud Storage Health", "status", "Healthy")
+
+
+def test_replication_deletes_object_when_row_and_file_vanish_mid_upload(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content = b"orphaned by concurrent delete"
+		file = create_attached_upload(content, file_name="orphan_race.bin")
+
+	cache_name = get_cache(file.name).name
+	s3_key = get_cache(file.name).s3_key
+	file_name = file.name
+
+	original_put_object = mocked_s3_client.put_object
+
+	def put_then_vanish(*args, **kwargs):
+		response = original_put_object(*args, **kwargs)
+		frappe.db.delete("Local File Cache", {"name": cache_name})
+		frappe.db.delete("File", {"name": file_name})
+		return response
+
+	with patch(
+		"cloud_storage.cloud_storage.tasks.get_cloud_storage_client", return_value=mocked_s3_client
+	), patch.object(mocked_s3_client, "put_object", side_effect=put_then_vanish):
+		replicate_cached_file(cache_name)
+
+	with pytest.raises(ClientError):
+		mocked_s3_client.head_object(Bucket=mocked_s3_client.bucket, Key=s3_key)
 
 
 def test_local_cache_enabled_rejects_use_local():
