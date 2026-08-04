@@ -26,7 +26,10 @@ def is_warm_on_read_enabled() -> bool:
 
 
 def is_cloud_storage_degraded() -> bool:
-	return is_local_cache_enabled() and frappe.db.get_single_value("Cloud Storage Health", "status") == "Degraded"
+	return (
+		is_local_cache_enabled()
+		and frappe.db.get_single_value("Cloud Storage Health", "status") == "Degraded"
+	)
 
 
 def get_max_cache_size_bytes() -> int:

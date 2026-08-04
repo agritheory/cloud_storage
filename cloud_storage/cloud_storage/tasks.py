@@ -21,7 +21,9 @@ from cloud_storage.cloud_storage.local_cache import (
 from cloud_storage.cloud_storage.overrides.file import get_cloud_storage_client
 
 
-def mark_replicated_if_current(local_file_cache_name: str, content_hash: str, s3_key: str, now) -> bool:
+def mark_replicated_if_current(
+	local_file_cache_name: str, content_hash: str, s3_key: str, now
+) -> bool:
 	LocalFileCache = DocType("Local File Cache")
 	(
 		frappe.qb.update(LocalFileCache)
@@ -78,9 +80,7 @@ def replicate_cached_file(local_file_cache_name: str):
 			try:
 				client.delete_object(Bucket=client.bucket, Key=cache.s3_key, VersionId=s3_version_id)
 			except Exception as e:
-				frappe.log_error(
-					str(e), "Cloud Storage Error: Could not delete orphaned replicated object"
-				)
+				frappe.log_error(str(e), "Cloud Storage Error: Could not delete orphaned replicated object")
 		else:
 			frappe.log_error(
 				f"Orphaned replicated object without a VersionId, left in place: {cache.s3_key}",
