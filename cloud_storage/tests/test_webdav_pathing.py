@@ -3,28 +3,16 @@
 
 import frappe
 import pytest
-from werkzeug.test import EnvironBuilder
 
 from cloud_storage.tests.fixtures import SHARED_VIEWER
 
 
 @pytest.fixture(autouse=True)
-def local_storage():
-	old = getattr(frappe.conf, "cloud_storage_settings", None)
-	frappe.conf.cloud_storage_settings = {"use_local": True}
-	yield
-	frappe.conf.cloud_storage_settings = old
-	frappe.set_user("Administrator")
+def force_local_storage(local_storage):
+	pass
 
 
-def dav_request(method: str, path: str, data: bytes = b"", headers: dict | None = None):
-	from cloud_storage.cloud_storage.webdav.renderer import invoke_webdav
-
-	builder = EnvironBuilder(method=method, path=path, data=data, headers=headers or {})
-	return invoke_webdav(builder.get_request())
-
-
-def test_put_creates_local_file():
+def test_put_creates_local_file(dav_request):
 	frappe.set_user(SHARED_VIEWER)
 
 	resp = dav_request("PUT", "/dav/webdav_pathing_put.txt", data=b"hello from webdav")
@@ -43,7 +31,7 @@ def test_put_creates_local_file():
 	frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
 
 
-def test_move_updates_folder_and_rejects_dot_segment_destination():
+def test_move_updates_folder_and_rejects_dot_segment_destination(dav_request):
 	frappe.set_user(SHARED_VIEWER)
 
 	mkcol_resp = dav_request("MKCOL", "/dav/WebdavMoveDest")

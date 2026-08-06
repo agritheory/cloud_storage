@@ -12,7 +12,7 @@ from frappe.utils import get_bench_path
 from moto import mock_s3
 
 
-def _get_logger(*args, **kwargs):
+def test_logger(*args, **kwargs):
 	from frappe.utils.logger import get_logger
 
 	return get_logger(
@@ -47,7 +47,7 @@ def monkeymodule():
 
 @pytest.fixture(scope="session", autouse=True)
 def db_instance():
-	frappe.logger = _get_logger
+	frappe.logger = test_logger
 
 	sites = Path(get_bench_path()) / "sites"
 	currentsite = "test_site"
@@ -98,3 +98,25 @@ def mocked_s3_client():
 			VersioningConfiguration={"Status": "Enabled"},
 		)
 		yield _MockedS3Client(client, bucket, "test_folder", 110)
+
+
+@pytest.fixture
+def local_storage():
+	old = getattr(frappe.conf, "cloud_storage_settings", None)
+	frappe.conf.cloud_storage_settings = {"use_local": True}
+	yield
+	frappe.conf.cloud_storage_settings = old
+	frappe.set_user("Administrator")
+
+
+@pytest.fixture
+def dav_request():
+	def send_dav_request(method: str, path: str, data: bytes = b"", headers: dict | None = None):
+		from werkzeug.test import EnvironBuilder
+
+		from cloud_storage.cloud_storage.webdav.renderer import invoke_webdav
+
+		builder = EnvironBuilder(method=method, path=path, data=data, headers=headers or {})
+		return invoke_webdav(builder.get_request())
+
+	return send_dav_request
