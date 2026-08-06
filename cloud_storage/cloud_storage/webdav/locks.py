@@ -55,7 +55,7 @@ class _RedisDict:
 	def hgetall_decoded(self) -> dict[str, Any]:
 		# hgetall unpickles values but leaves Redis hash keys as raw bytes;
 		# wsgidav compares them against str URLs so we decode here.
-		raw = self._cache().hgetall(self._ns) or {}
+		raw = self.cache().hgetall(self._ns) or {}
 		return {(k.decode("utf-8") if isinstance(k, bytes) else k): v for k, v in raw.items()}
 
 
