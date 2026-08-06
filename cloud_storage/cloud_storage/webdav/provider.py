@@ -117,7 +117,10 @@ def strip_dav_prefix(path: str) -> str:
 
 def split_dav_path(path: str) -> list[str]:
 	path = strip_dav_prefix(path).strip("/")
-	return [unquote(part) for part in path.split("/") if part]
+	parts = [unquote(part) for part in path.split("/") if part]
+	if any(part in (".", "..") for part in parts):
+		raise DAVError(HTTP_FORBIDDEN, "invalid path segment")
+	return parts
 
 
 def parse_dest(dest_path: str) -> tuple[str, str]:
