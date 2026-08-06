@@ -34,12 +34,12 @@ class WriteBuffer(io.RawIOBase):
 		if not self.closed:
 			super().close()
 			try:
-				self._commit()
+				self.commit()
 			except Exception:
 				frappe.log_error("WebDAV upload error", frappe.get_traceback())
 				raise
 
-	def _commit(self) -> None:
+	def commit(self) -> None:
 		content = self._buf.getvalue()
 
 		file_doc = frappe.new_doc("File")
@@ -87,12 +87,12 @@ class OverwriteBuffer(io.RawIOBase):
 		if not self.closed:
 			super().close()
 			try:
-				self._commit()
+				self.commit()
 			except Exception:
 				frappe.log_error("WebDAV overwrite error", frappe.get_traceback())
 				raise
 
-	def _commit(self) -> None:
+	def commit(self) -> None:
 		content = self._buf.getvalue()
 		if not content:
 			return

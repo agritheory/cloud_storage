@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """
-Serve WebDAV from inside Frappe (no second port).
+Serve WebDAV from inside Frappe.
 
 Two pieces:
   * WebdavRenderer       — page_renderer for GET/HEAD/POST (Frappe routes these
@@ -31,10 +31,10 @@ from cloud_storage.cloud_storage.webdav.locks import RedisLockStorage
 from cloud_storage.cloud_storage.webdav.provider import FrappeDAVProvider
 
 
-_logger = frappe.logger("webdav", allow_site=False)
+logger = frappe.logger("webdav", allow_site=False)
 
 
-_WEBDAV_METHODS = {
+WEBDAV_METHODS = {
 	"PROPFIND",
 	"MKCOL",
 	"MOVE",
@@ -44,19 +44,19 @@ _WEBDAV_METHODS = {
 	"PUT",
 	"DELETE",
 }
-_UNSUPPORTED_WEBDAV_METHODS = {"COPY", "PROPPATCH"}
+UNSUPPORTED_WEBDAV_METHODS = {"COPY", "PROPPATCH"}
 
-_MOUNT_PREFIX = "/dav"
+MOUNT_PREFIX = "/dav"
 
-_webdav_app = None
-_webdav_app_lock = threading.Lock()
+webdav_app = None
+webdav_app_lock = threading.Lock()
 
 
 class WebdavResponse(HTTPException):
 	"""Carry a Werkzeug Response out of a before_request hook."""
 
-	def __init__(self, response: Response) -> None:
-		super().__init__()
+	def __init__(self, response: Response) -> None:  # noqa: B042
+		super().__init__(response=response)
 		self._response = response
 		self.code = response.status_code
 
@@ -74,9 +74,9 @@ class WebdavRenderer:
 
 	def render(self) -> Response:
 		request = frappe.local.request
-		if _needs_auth_challenge(request):
-			return _auth_challenge()
-		return _invoke_webdav(request)
+		if needs_auth_challenge(request):
+			return auth_challenge()
+		return invoke_webdav(request)
 
 
 class _NoAuthDC(BaseDomainController):
@@ -105,30 +105,30 @@ def handle_webdav_methods() -> None:
 	check, so PROPFIND etc. can be handled without app.py raising NotFound.
 	"""
 	request = getattr(frappe.local, "request", None)
-	if not request or not request.path.startswith(_MOUNT_PREFIX):
+	if not request or not request.path.startswith(MOUNT_PREFIX):
 		return
-	if request.method in _UNSUPPORTED_WEBDAV_METHODS:
+	if request.method in UNSUPPORTED_WEBDAV_METHODS:
 		validate_auth()
-		if _needs_auth_challenge(request):
-			raise WebdavResponse(_auth_challenge())
-		raise WebdavResponse(_method_not_allowed(request.method))
-	if request.method not in _WEBDAV_METHODS:
+		if needs_auth_challenge(request):
+			raise WebdavResponse(auth_challenge())
+		raise WebdavResponse(method_not_allowed(request.method))
+	if request.method not in WEBDAV_METHODS:
 		return
 
 	# OPTIONS is a capability probe — let it through without auth so unmounted
 	# clients can discover us. Every other method needs a real user.
 	if request.method != "OPTIONS":
 		validate_auth()
-		if _needs_auth_challenge(request):
-			_logger.debug(f"{request.method} {request.path} → 401 (no auth)")
-			raise WebdavResponse(_auth_challenge())
+		if needs_auth_challenge(request):
+			logger.debug(f"{request.method} {request.path} → 401 (no auth)")
+			raise WebdavResponse(auth_challenge())
 
-	resp = _invoke_webdav(request)
-	_logger.debug(f"{request.method} {request.path} → {resp.status_code} user={frappe.session.user}")
+	resp = invoke_webdav(request)
+	logger.debug(f"{request.method} {request.path} → {resp.status_code} user={frappe.session.user}")
 	raise WebdavResponse(resp)
 
 
-def _needs_auth_challenge(request) -> bool:
+def needs_auth_challenge(request) -> bool:
 	"""True when we should respond with 401 to make the client send credentials."""
 	if frappe.session.user != "Guest":
 		return False
@@ -138,57 +138,50 @@ def _needs_auth_challenge(request) -> bool:
 	return request.method != "OPTIONS"
 
 
-def _auth_challenge() -> Response:
+def auth_challenge() -> Response:
 	resp = Response("Authentication required\n", status=401, mimetype="text/plain")
 	resp.headers["WWW-Authenticate"] = 'Basic realm="Frappe Cloud Storage"'
 	return resp
 
 
-def _method_not_allowed(method: str) -> Response:
+def method_not_allowed(method: str) -> Response:
 	resp = Response(f"{method} is not supported\n", status=405, mimetype="text/plain")
-	resp.headers["Allow"] = ", ".join(sorted(_WEBDAV_METHODS))
+	resp.headers["Allow"] = ", ".join(sorted(WEBDAV_METHODS))
 	return resp
 
 
-def _get_webdav_app():
+def get_webdav_app():
 	"""Build the WsgiDAVApp once per process (thread-safe lazy init)."""
-	global _webdav_app
-	if _webdav_app is not None:
-		return _webdav_app
-	with _webdav_app_lock:
-		if _webdav_app is not None:
-			return _webdav_app
+	global webdav_app
+	if webdav_app is not None:
+		return webdav_app
+	with webdav_app_lock:
+		if webdav_app is not None:
+			return webdav_app
 		config = {
-			# Mount the provider at /dav (not /) so wsgidav emits hrefs that
-			# include the prefix — Finder navigates via those hrefs and breaks
-			# if they point to /<resource> instead of /dav/<resource>.
-			"provider_mapping": {_MOUNT_PREFIX: FrappeDAVProvider()},
+			"provider_mapping": {MOUNT_PREFIX: FrappeDAVProvider()},
 			"http_authenticator": {
 				"domain_controller": _NoAuthDC,
-				# wsgidav refuses to init with both off — keep basic on, but
-				# require_authentication=False above means it's never invoked.
 				"accept_basic": True,
 				"accept_digest": False,
 				"default_to_digest": False,
 			},
-			# Redis-backed so locks survive across gunicorn workers — see
-			# webdav/locks.py for the rationale.
 			"lock_storage": RedisLockStorage(),
 			"verbose": 1,
 			"logging": {"enable_loggers": []},
 		}
-		_webdav_app = WsgiDAVApp(config)
-		return _webdav_app
+		webdav_app = WsgiDAVApp(config)
+		return webdav_app
 
 
-def _invoke_webdav(request) -> Response:
+def invoke_webdav(request) -> Response:
 	"""Run the embedded WsgiDAVApp with request's environ, return its Response."""
 	environ = dict(request.environ)
 	# wsgidav's provider is mounted at /dav, so it handles PATH_INFO/SCRIPT_NAME
 	# routing itself. We just pass the environ through unchanged.
 
-	# Pre-read the body via werkzeug (which handles bounded reads & chunked TE
-	# properly) and replace wsgi.input with an in-memory BytesIO. wsgidav
+	# Pre-read the body via werkzeug (which handles bounded reads & chunked
+	# Transfer-Encoding properly) and replace wsgi.input with an in-memory BytesIO. wsgidav
 	# otherwise tries to read directly from the raw socket — which is where
 	# wsgiref/werkzeug-dev block waiting on bytes that buffered clients
 	# (Finder) don't flush until the response starts.
@@ -205,7 +198,7 @@ def _invoke_webdav(request) -> Response:
 		headers_holder[:] = headers
 		return lambda data: None
 
-	app = _get_webdav_app()
+	app = get_webdav_app()
 	body_iter = None
 	out = b""
 	status_code = 500
@@ -222,7 +215,7 @@ def _invoke_webdav(request) -> Response:
 		allowed = [
 			m.strip()
 			for m in resp.headers["Allow"].split(",")
-			if m.strip() not in _UNSUPPORTED_WEBDAV_METHODS
+			if m.strip() not in UNSUPPORTED_WEBDAV_METHODS
 		]
 		resp.headers["Allow"] = ", ".join(allowed)
 	return resp

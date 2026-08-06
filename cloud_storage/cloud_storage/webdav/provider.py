@@ -35,41 +35,39 @@ from cloud_storage.cloud_storage.webdav.permissions import (
 )
 
 
-_SYSTEM_FOLDERS = {"Home", "Home/Attachments"}
-_OS_FILES = frozenset({".DS_Store", "desktop.ini", "Thumbs.db", ".Trashes", ".Spotlight-V100"})
-_OS_PREFIXES = ("._",)
-# Editor atomic-save scratchpads (e.g. TextEdit's "<file>.sb-<hex>" folders).
-# Functional but hidden from listings so they don't persist visibly if a save crashes.
-_TEMP_PREFIXES = (".sb-",)
+SYSTEM_FOLDERS = {"Home", "Home/Attachments"}
+OS_FILES = frozenset({".DS_Store", "desktop.ini", "Thumbs.db", ".Trashes", ".Spotlight-V100"})
+OS_PREFIXES = ("._",)
+TEMP_PREFIXES = (".sb-",)
 
 
-def _is_os_metadata(name: str) -> bool:
-	return name in _OS_FILES or name.startswith(_OS_PREFIXES)
+def is_os_metadata(name: str) -> bool:
+	return name in OS_FILES or name.startswith(OS_PREFIXES)
 
 
-def _is_hidden_from_listing(name: str) -> bool:
-	return _is_os_metadata(name) or name.startswith(_TEMP_PREFIXES)
+def is_hidden_from_listing(name: str) -> bool:
+	return is_os_metadata(name) or name.startswith(TEMP_PREFIXES)
 
 
-_MOUNT_PREFIX = "/dav"
-_logger = frappe.logger("webdav", allow_site=False)
+MOUNT_PREFIX = "/dav"
+logger = frappe.logger("webdav", allow_site=False)
 
 
-def _is_cloud_storage_enabled() -> bool:
+def is_cloud_storage_enabled() -> bool:
 	config = frappe.conf.get("cloud_storage_settings", {})
 	return bool(config and not config.get("use_local"))
 
 
-def _detach_local_file_before_delete(file_doc) -> None:
+def detach_local_file_before_delete(file_doc) -> None:
 	"""Delete a transient File doc without deleting the shared local payload."""
-	if _is_cloud_storage_enabled() or file_doc.s3_key:
+	if is_cloud_storage_enabled() or file_doc.s3_key:
 		return
 	file_doc.file_url = None
 	file_doc.db_set("file_url", None)
 
 
-def _backup_s3_object(key: str | None) -> tuple[Any, str, str] | None:
-	if not key or not _is_cloud_storage_enabled():
+def backup_s3_object(key: str | None) -> tuple[Any, str, str] | None:
+	if not key or not is_cloud_storage_enabled():
 		return None
 	client = get_cloud_storage_client()
 	backup_key = f"{key}.webdav-overwrite-backup-{uuid.uuid4().hex}"
@@ -81,17 +79,17 @@ def _backup_s3_object(key: str | None) -> tuple[Any, str, str] | None:
 	return client, key, backup_key
 
 
-def _delete_s3_backup(backup: tuple[Any, str, str] | None) -> None:
+def delete_s3_backup(backup: tuple[Any, str, str] | None) -> None:
 	if not backup:
 		return
 	client, _, backup_key = backup
 	try:
 		client.delete_object(Bucket=client.bucket, Key=backup_key)
 	except Exception:
-		_logger.warning(f"failed to remove WebDAV overwrite backup {backup_key!r}")
+		logger.warning(f"failed to remove WebDAV overwrite backup {backup_key!r}")
 
 
-def _restore_s3_backup(backup: tuple[Any, str, str] | None) -> None:
+def restore_s3_backup(backup: tuple[Any, str, str] | None) -> None:
 	if not backup:
 		return
 	client, original_key, backup_key = backup
@@ -102,28 +100,28 @@ def _restore_s3_backup(backup: tuple[Any, str, str] | None) -> None:
 			Key=original_key,
 		)
 	except Exception:
-		_logger.warning(f"failed to restore WebDAV overwrite backup {backup_key!r}")
+		logger.warning(f"failed to restore WebDAV overwrite backup {backup_key!r}")
 		raise
 	finally:
-		_delete_s3_backup(backup)
+		delete_s3_backup(backup)
 
 
-def _strip_dav_prefix(path: str) -> str:
+def strip_dav_prefix(path: str) -> str:
 	"""Strip /dav prefix so both PATH_INFO and Destination headers resolve uniformly."""
-	if path.startswith(_MOUNT_PREFIX + "/"):
-		return path[len(_MOUNT_PREFIX) :]
-	if path in (_MOUNT_PREFIX, _MOUNT_PREFIX + "/"):
+	if path.startswith(MOUNT_PREFIX + "/"):
+		return path[len(MOUNT_PREFIX) :]
+	if path in (MOUNT_PREFIX, MOUNT_PREFIX + "/"):
 		return "/"
 	return path
 
 
-def _split_dav_path(path: str) -> list[str]:
-	path = _strip_dav_prefix(path).strip("/")
+def split_dav_path(path: str) -> list[str]:
+	path = strip_dav_prefix(path).strip("/")
 	return [unquote(part) for part in path.split("/") if part]
 
 
-def _parse_dest(dest_path: str) -> tuple[str, str]:
-	parts = _split_dav_path(dest_path)
+def parse_dest(dest_path: str) -> tuple[str, str]:
+	parts = split_dav_path(dest_path)
 	if not parts:
 		raise DAVError(HTTP_FORBIDDEN, "invalid destination")
 	new_name = parts[-1]
@@ -140,7 +138,7 @@ class FrappeCollection(DAVCollection):
 		self.frappe_folder = frappe_folder
 		self._meta: Any | None = None
 
-	def _get_meta(self) -> Any | None:
+	def get_meta(self) -> Any | None:
 		if self._meta is None:
 			parent = frappe_folder_parent(self.frappe_folder)
 			if not parent:
@@ -155,11 +153,11 @@ class FrappeCollection(DAVCollection):
 		return self._meta
 
 	def get_creation_date(self) -> float | None:
-		meta = self._get_meta()
+		meta = self.get_meta()
 		return meta.creation.timestamp() if meta else None
 
 	def get_last_modified(self) -> float | None:
-		meta = self._get_meta()
+		meta = self.get_meta()
 		return meta.modified.timestamp() if meta else None
 
 	def get_display_name(self) -> str:
@@ -178,13 +176,13 @@ class FrappeCollection(DAVCollection):
 			fields=["name", "file_name"],
 		)
 		return [
-			r.file_name for r in rows if not _is_hidden_from_listing(r.file_name) and _can(r.name, "read")
+			r.file_name for r in rows if not is_hidden_from_listing(r.file_name) and _can(r.name, "read")
 		]
 
 	def get_member(self, name: str):
 		child_path = self.path.rstrip("/") + "/" + name
 
-		if _is_os_metadata(name):
+		if is_os_metadata(name):
 			if os_file_store.contains(child_path):
 				return _MemoryFile(child_path, self.environ, name)
 			return None
@@ -207,7 +205,7 @@ class FrappeCollection(DAVCollection):
 		file_rows = frappe.get_all(
 			"File",
 			filters={"folder": self.frappe_folder, "file_name": name, "is_folder": 0},
-			fields=_FILE_FIELDS,
+			fields=FILE_FIELDS,
 			limit=1,
 		)
 		if file_rows:
@@ -220,7 +218,7 @@ class FrappeCollection(DAVCollection):
 	def create_empty_resource(self, name: str):
 		child_path = self.path.rstrip("/") + "/" + name
 		# OS metadata files go to in-memory store, not Frappe/S3.
-		if _is_os_metadata(name):
+		if is_os_metadata(name):
 			return _MemoryFile(child_path, self.environ, name)
 		if not _can_create():
 			raise DAVError(HTTP_FORBIDDEN)
@@ -277,7 +275,7 @@ class FrappeCollection(DAVCollection):
 	def handle_move(self, dest_path: str) -> bool | list:
 		# Handle MOVE natively so wsgidav never reaches its fallback path that
 		# deletes an existing destination before calling move_recursive().
-		if self.frappe_folder in _SYSTEM_FOLDERS:
+		if self.frappe_folder in SYSTEM_FOLDERS:
 			raise DAVError(HTTP_FORBIDDEN, "cannot move system folders")
 		parent = frappe_folder_parent(self.frappe_folder)
 		display = _folder_display_name(self.frappe_folder)
@@ -288,7 +286,7 @@ class FrappeCollection(DAVCollection):
 		)
 		if not folder_name or not _can(folder_name, "write"):
 			raise DAVError(HTTP_FORBIDDEN)
-		new_parent, _ = _parse_dest(dest_path)
+		new_parent, _ = parse_dest(dest_path)
 		if not _can_write_folder(new_parent):
 			raise DAVError(HTTP_FORBIDDEN)
 		return self.move_recursive(dest_path)
@@ -297,12 +295,12 @@ class FrappeCollection(DAVCollection):
 		raise DAVError(HTTP_FORBIDDEN)
 
 	def move_recursive(self, dest_path: str):
-		if self.frappe_folder in _SYSTEM_FOLDERS:
+		if self.frappe_folder in SYSTEM_FOLDERS:
 			raise DAVError(HTTP_FORBIDDEN, "cannot move system folders")
 
-		new_parent, new_name = _parse_dest(dest_path)
+		new_parent, new_name = parse_dest(dest_path)
 		new_frappe_folder = f"{new_parent}/{new_name}"
-		_logger.debug(f"folder move src={self.frappe_folder!r} → {new_frappe_folder!r}")
+		logger.debug(f"folder move src={self.frappe_folder!r} → {new_frappe_folder!r}")
 
 		parent = frappe_folder_parent(self.frappe_folder)
 		display = _folder_display_name(self.frappe_folder)
@@ -356,7 +354,7 @@ class FrappeCollection(DAVCollection):
 				],
 				fields=["name", "folder"],
 			)
-			_logger.debug(f"folder move reparenting {len(affected)} descendant(s)")
+			logger.debug(f"folder move reparenting {len(affected)} descendant(s)")
 			for f in affected:
 				new_folder_path = new_frappe_folder + f.folder[len(old) :]
 				frappe.db.set_value("File", f.name, "folder", new_folder_path)
@@ -377,7 +375,7 @@ class FrappeCollection(DAVCollection):
 		return True
 
 
-_FILE_FIELDS = [
+FILE_FIELDS = [
 	"name",
 	"file_name",
 	"folder",
@@ -398,11 +396,11 @@ class _MemoryFile(DAVNonCollection):
 		super().__init__(path, environ)
 		self.file_name = file_name
 
-	def _content(self) -> bytes:
+	def raw_content(self) -> bytes:
 		return os_file_store.get(self.path) or b""
 
 	def get_content_length(self) -> int:
-		return len(self._content())
+		return len(self.raw_content())
 
 	def get_content_type(self) -> str:
 		return "application/octet-stream"
@@ -429,7 +427,7 @@ class _MemoryFile(DAVNonCollection):
 		return False
 
 	def get_content(self) -> Any:
-		return io.BytesIO(self._content())
+		return io.BytesIO(self.raw_content())
 
 	def begin_write(self, content_type: str | None = None):
 		return _MemoryBuffer(self.path)
@@ -438,10 +436,10 @@ class _MemoryFile(DAVNonCollection):
 		os_file_store.delete(self.path)
 
 	def handle_move(self, dest_path: str) -> bool:
-		dest = _strip_dav_prefix(dest_path).rstrip("/")
+		dest = strip_dav_prefix(dest_path).rstrip("/")
 		if not dest:
 			raise DAVError(HTTP_FORBIDDEN, "invalid destination")
-		os_file_store.set(unquote(dest), self._content())
+		os_file_store.set(unquote(dest), self.raw_content())
 		os_file_store.delete(self.path)
 		return True
 
@@ -582,7 +580,7 @@ class FrappeFile(DAVNonCollection):
 		# deletes an existing destination before calling move_recursive().
 		if not _can(self.file_doc.name, "write"):
 			raise DAVError(HTTP_FORBIDDEN)
-		new_folder, _ = _parse_dest(dest_path)
+		new_folder, _ = parse_dest(dest_path)
 		if not _can_write_folder(new_folder):
 			raise DAVError(HTTP_FORBIDDEN)
 		return self.move_recursive(dest_path)
@@ -593,10 +591,10 @@ class FrappeFile(DAVNonCollection):
 	def move_recursive(self, dest_path: str):
 		if not _can(self.file_doc.name, "write"):
 			raise DAVError(HTTP_FORBIDDEN)
-		new_folder, new_name = _parse_dest(dest_path)
+		new_folder, new_name = parse_dest(dest_path)
 		if not _can_write_folder(new_folder):
 			raise DAVError(HTTP_FORBIDDEN)
-		_logger.debug(
+		logger.debug(
 			f"file move doc={self.file_doc.name} {self.file_doc.file_name!r} → " f"{new_folder}/{new_name}"
 		)
 
@@ -617,13 +615,13 @@ class FrappeFile(DAVNonCollection):
 		if existing:
 			if not _can(existing.name, "write"):
 				raise DAVError(HTTP_FORBIDDEN)
-			return self._replace_existing_destination(existing.name, existing.s3_key)
+			return self.replace_existing_destination(existing.name, existing.s3_key)
 
-		displaced = self._find_displaced_atomic_save_destination(new_folder, new_name)
+		displaced = self.find_displaced_atomic_save_destination(new_folder, new_name)
 		if displaced:
 			if not _can(displaced.name, "write"):
 				raise DAVError(HTTP_FORBIDDEN)
-			return self._replace_existing_destination(
+			return self.replace_existing_destination(
 				displaced.name,
 				displaced.s3_key,
 				final_folder=new_folder,
@@ -649,7 +647,7 @@ class FrappeFile(DAVNonCollection):
 			if is_rename:
 				client = get_cloud_storage_client()
 				new_key = paths.get_webdav_path(file_doc, client.folder)
-				_logger.debug(f"file move S3 rename {old_s3_key!r} → {new_key!r}")
+				logger.debug(f"file move S3 rename {old_s3_key!r} → {new_key!r}")
 				client.copy_object(
 					Bucket=client.bucket,
 					CopySource={"Bucket": client.bucket, "Key": old_s3_key},
@@ -666,7 +664,7 @@ class FrappeFile(DAVNonCollection):
 				try:
 					client.delete_object(Bucket=client.bucket, Key=new_key)
 				except Exception:
-					_logger.warning(f"failed to clean up orphan S3 key {new_key!r}")
+					logger.warning(f"failed to clean up orphan S3 key {new_key!r}")
 			if isinstance(exc, frappe.PermissionError):
 				raise DAVError(HTTP_FORBIDDEN)
 			if isinstance(exc, frappe.ValidationError):
@@ -676,10 +674,10 @@ class FrappeFile(DAVNonCollection):
 			try:
 				client.delete_object(Bucket=client.bucket, Key=old_s3_key)
 			except Exception:
-				_logger.warning(f"failed to remove old S3 key {old_s3_key!r} after rename")
+				logger.warning(f"failed to remove old S3 key {old_s3_key!r} after rename")
 		return []
 
-	def _find_displaced_atomic_save_destination(self, new_folder: str, new_name: str):
+	def find_displaced_atomic_save_destination(self, new_folder: str, new_name: str):
 		source_folder = self.file_doc.get("folder")
 		if self.file_doc.file_name != new_name or not source_folder:
 			return None
@@ -699,11 +697,11 @@ class FrappeFile(DAVNonCollection):
 		)
 		for row in rows:
 			if row.file_name.startswith(prefix):
-				_logger.debug(f"atomic save replace final={new_folder}/{new_name!r} displaced={row.name!r}")
+				logger.debug(f"atomic save replace final={new_folder}/{new_name!r} displaced={row.name!r}")
 				return row
 		return None
 
-	def _replace_existing_destination(
+	def replace_existing_destination(
 		self,
 		existing_name: str,
 		existing_s3_key: str | None,
@@ -718,8 +716,8 @@ class FrappeFile(DAVNonCollection):
 		try:
 			source_doc = frappe.get_doc("File", self.file_doc.name)
 			existing_doc = frappe.get_doc("File", existing_name)
-			overwrite_backup = _backup_s3_object(existing_s3_key)
-			source_backup = _backup_s3_object(source_doc.s3_key)
+			overwrite_backup = backup_s3_object(existing_s3_key)
+			source_backup = backup_s3_object(source_doc.s3_key)
 
 			if final_folder is not None:
 				existing_doc.folder = final_folder
@@ -730,7 +728,7 @@ class FrappeFile(DAVNonCollection):
 				existing_doc.save()
 
 			paths.replace_existing_via_webdav(existing_doc, source_doc)
-			_detach_local_file_before_delete(source_doc)
+			detach_local_file_before_delete(source_doc)
 			frappe.delete_doc("File", source_doc.name)
 			frappe.db.commit()
 			current_s3_key = frappe.db.get_value("File", existing_doc.name, "s3_key")
@@ -739,14 +737,14 @@ class FrappeFile(DAVNonCollection):
 				try:
 					client.delete_object(Bucket=client.bucket, Key=existing_s3_key)
 				except Exception:
-					_logger.warning(f"failed to remove old S3 key {existing_s3_key!r} after replace")
-			_delete_s3_backup(overwrite_backup)
-			_delete_s3_backup(source_backup)
+					logger.warning(f"failed to remove old S3 key {existing_s3_key!r} after replace")
+			delete_s3_backup(overwrite_backup)
+			delete_s3_backup(source_backup)
 			return []
 		except Exception as exc:
 			frappe.db.rollback(save_point=savepoint)
-			_restore_s3_backup(overwrite_backup)
-			_restore_s3_backup(source_backup)
+			restore_s3_backup(overwrite_backup)
+			restore_s3_backup(source_backup)
 			if isinstance(exc, frappe.PermissionError):
 				raise DAVError(HTTP_FORBIDDEN)
 			if isinstance(exc, frappe.ValidationError):
@@ -764,8 +762,8 @@ class FrappeDAVProvider(DAVProvider):
 	"""Root WebDAV provider: maps URL paths to Frappe File doctypes."""
 
 	def get_resource_inst(self, path: str, environ: dict):
-		path = _strip_dav_prefix(path)
-		parts = _split_dav_path(path)
+		path = strip_dav_prefix(path)
+		parts = split_dav_path(path)
 
 		if not parts:
 			return FrappeCollection("/", environ, "Home")
@@ -789,7 +787,7 @@ class FrappeDAVProvider(DAVProvider):
 
 		last = parts[-1]
 
-		if _is_os_metadata(last):
+		if is_os_metadata(last):
 			if os_file_store.contains(path):
 				return _MemoryFile(path, environ, last)
 			return None
@@ -810,7 +808,7 @@ class FrappeDAVProvider(DAVProvider):
 		file_rows = frappe.get_all(
 			"File",
 			filters={"folder": frappe_folder, "file_name": last, "is_folder": 0},
-			fields=_FILE_FIELDS,
+			fields=FILE_FIELDS,
 			limit=1,
 		)
 		if file_rows:

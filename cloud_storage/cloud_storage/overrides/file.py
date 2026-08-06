@@ -594,7 +594,7 @@ def get_file_path(file: File, folder: str | None = None) -> str:
 
 	config = frappe.conf.get("cloud_storage_settings", {})
 	if config.get("use_legacy_paths", True):
-		return _legacy_get_file_path(file, folder)
+		return legacy_get_file_path(file, folder)
 
 	if folder:
 		return f"{folder}/{file.file_name}"
@@ -602,7 +602,7 @@ def get_file_path(file: File, folder: str | None = None) -> str:
 	return file.file_name
 
 
-def _legacy_get_file_path(file: File, folder: str | None = None) -> str:
+def legacy_get_file_path(file: File, folder: str | None = None) -> str:
 	parent_doctype = file.attached_to_doctype or "No Doctype"
 
 	attached_to_name = ""

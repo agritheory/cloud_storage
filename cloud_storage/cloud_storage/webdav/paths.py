@@ -16,12 +16,12 @@ from cloud_storage.cloud_storage.overrides.file import (
 )
 
 
-_WEBDAV_PREFIX = "webdav"
+WEBDAV_PREFIX = "webdav"
 
 
-def _default_webdav_path(file: File, folder: str | None) -> str:
+def default_webdav_path(file: File, folder: str | None) -> str:
 	"""Per-doc S3 key with a URL-safe filename component."""
-	parts = [folder, _WEBDAV_PREFIX, file.name, quote(file.file_name, safe="")]
+	parts = [folder, WEBDAV_PREFIX, file.name, quote(file.file_name, safe="")]
 	return "/".join(p for p in parts if p)
 
 
@@ -36,7 +36,7 @@ def get_webdav_path(file: File, folder: str | None) -> str:
 				f"cloud_storage_webdav_path_generator failed: {e}",
 				"WebDAV Path Generator Error",
 			)
-	return _default_webdav_path(file, folder)
+	return default_webdav_path(file, folder)
 
 
 def upload_via_webdav(file_doc: File, content: bytes, content_type: str) -> File:
@@ -70,7 +70,7 @@ def upload_via_webdav(file_doc: File, content: bytes, content_type: str) -> File
 	return file_doc
 
 
-def _content_type_for(file_doc: File, fallback_name: str | None = None) -> str:
+def content_type_for(file_doc: File, fallback_name: str | None = None) -> str:
 	return (
 		getattr(file_doc, "content_type", None)
 		or mimetypes.guess_type(fallback_name or file_doc.file_name or "")[0]
@@ -80,7 +80,7 @@ def _content_type_for(file_doc: File, fallback_name: str | None = None) -> str:
 
 def replace_existing_via_webdav(existing_doc: File, source_doc: File) -> File:
 	"""Replace an existing WebDAV File doc with source content, preserving versions."""
-	content_type = _content_type_for(source_doc, existing_doc.file_name)
+	content_type = content_type_for(source_doc, existing_doc.file_name)
 	source_size = source_doc.file_size or 0
 	source_hash = source_doc.content_hash
 
