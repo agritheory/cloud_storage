@@ -4,8 +4,19 @@
 __version__ = "15.7.2"
 
 
+import frappe
 import frappe.desk.form.load
+from frappe.core.doctype.file import file as file_module
 from frappe.query_builder import DocType
+
+import cloud_storage.permissions  # noqa: F401 — must load before silencing stock File list hook
+
+
+def empty_file_permission_query_conditions(user=None, doctype=None):
+	return None
+
+
+file_module.get_permission_query_conditions = empty_file_permission_query_conditions
 
 
 @frappe.whitelist()

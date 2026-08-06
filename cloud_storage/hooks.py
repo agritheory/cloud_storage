@@ -69,6 +69,9 @@ doctype_js = {"File": "public/js/file.js"}
 # before_install = "cloud_storage.install.before_install"
 after_install = "cloud_storage.install.after_install"
 
+# Documented for operators; install hooks read DEBIAN_PACKAGES in install.py.
+debian_packages = ["libmagic1", "libreoffice"]
+
 # Uninstallation
 # ------------
 
@@ -85,9 +88,9 @@ after_install = "cloud_storage.install.after_install"
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
+permission_query_conditions = {
+	"File": "cloud_storage.permissions.file_permission_query_conditions",
+}
 
 # has_permission = {
 # "File": "cloud_storage.cloud_storage.overrides.file.has_permission",
