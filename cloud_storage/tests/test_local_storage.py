@@ -120,3 +120,27 @@ def test_delete_file_local(example_file):
 	file.delete()
 
 	assert not frappe.db.exists("File", file.name)
+
+
+def test_get_content_rejects_absolute_path_escape():
+	"""An absolute file_name escapes the files/ sandbox via os.path.join."""
+	frappe.set_user("Administrator")
+	file = frappe.new_doc("File")
+	file.file_name = "/etc/hostname"
+	file.file_url = ""
+	file.is_private = 0
+
+	with pytest.raises(frappe.ValidationError):
+		file.get_content()
+
+
+def test_get_content_rejects_relative_path_escape():
+	"""Same escape, via ../ traversal instead of an absolute path."""
+	frappe.set_user("Administrator")
+	file = frappe.new_doc("File")
+	file.file_name = "../" * 10 + "etc/hostname"
+	file.file_url = ""
+	file.is_private = 1
+
+	with pytest.raises(frappe.ValidationError):
+		file.get_content()
