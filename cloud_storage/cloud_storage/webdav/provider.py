@@ -170,17 +170,14 @@ class FrappeCollection(DAVCollection):
 		return None
 
 	def get_member_names(self) -> list[str]:
-		# get_all + _can(read): File's permission_query_conditions is owner-only
-		# for non-SM users but has_permission also allows public/attached/shared
-		# files. Filtering with _can mirrors what GET would actually serve.
-		rows = frappe.get_all(
+		# get_list (unlike get_all) applies file_permission_query_conditions,
+		# including folder-inherited shares — the sole read-visibility gate.
+		rows = frappe.get_list(
 			"File",
 			filters={"folder": self.frappe_folder},
 			fields=["name", "file_name"],
 		)
-		return [
-			r.file_name for r in rows if not is_hidden_from_listing(r.file_name) and _can(r.name, "read")
-		]
+		return [r.file_name for r in rows if not is_hidden_from_listing(r.file_name)]
 
 	def get_member(self, name: str):
 		child_path = self.path.rstrip("/") + "/" + name
@@ -190,30 +187,23 @@ class FrappeCollection(DAVCollection):
 				return _MemoryFile(child_path, self.environ, name)
 			return None
 
-		# Same get_all + _can rationale as get_member_names.
-		# Both "not found" and "no permission" return None → wsgidav sends 404,
-		# which doesn't leak resource existence to unauthorized callers.
-		folder_match = frappe.get_all(
+		folder_match = frappe.get_list(
 			"File",
 			filters={"folder": self.frappe_folder, "file_name": name, "is_folder": 1},
 			pluck="name",
-			limit=1,
+			limit_page_length=1,
 		)
 		if folder_match:
-			if not _can(folder_match[0], "read"):
-				return None
 			child_frappe_folder = f"{self.frappe_folder}/{name}"
 			return FrappeCollection(child_path + "/", self.environ, child_frappe_folder)
 
-		file_rows = frappe.get_all(
+		file_rows = frappe.get_list(
 			"File",
 			filters={"folder": self.frappe_folder, "file_name": name, "is_folder": 0},
 			fields=FILE_FIELDS,
-			limit=1,
+			limit_page_length=1,
 		)
 		if file_rows:
-			if not _can(file_rows[0].name, "read"):
-				return None
 			return FrappeFile(child_path, self.environ, file_rows[0])
 
 		return None
@@ -771,20 +761,16 @@ class FrappeDAVProvider(DAVProvider):
 		if not parts:
 			return FrappeCollection("/", environ, "Home")
 
-		# get_all + _can(read): mirrors has_permission which is broader than
-		# the owner-only SQL filter in permission_query_conditions.
 		frappe_folder = "Home"
 		for part in parts[:-1]:
 			parent = frappe_folder
-			match = frappe.get_all(
+			match = frappe.get_list(
 				"File",
 				filters={"folder": parent, "file_name": part, "is_folder": 1},
 				pluck="name",
-				limit=1,
+				limit_page_length=1,
 			)
 			if not match:
-				return None
-			if not _can(match[0], "read"):
 				return None
 			frappe_folder = f"{parent}/{part}"
 
@@ -795,28 +781,24 @@ class FrappeDAVProvider(DAVProvider):
 				return _MemoryFile(path, environ, last)
 			return None
 
-		folder_match = frappe.get_all(
+		folder_match = frappe.get_list(
 			"File",
 			filters={"folder": frappe_folder, "file_name": last, "is_folder": 1},
 			pluck="name",
-			limit=1,
+			limit_page_length=1,
 		)
 		if folder_match:
-			if not _can(folder_match[0], "read"):
-				return None
 			child_folder = f"{frappe_folder}/{last}"
 			canonical = path if path.endswith("/") else path + "/"
 			return FrappeCollection(canonical, environ, child_folder)
 
-		file_rows = frappe.get_all(
+		file_rows = frappe.get_list(
 			"File",
 			filters={"folder": frappe_folder, "file_name": last, "is_folder": 0},
 			fields=FILE_FIELDS,
-			limit=1,
+			limit_page_length=1,
 		)
 		if file_rows:
-			if not _can(file_rows[0].name, "read"):
-				return None
 			return FrappeFile(path, environ, file_rows[0])
 
 		return None
