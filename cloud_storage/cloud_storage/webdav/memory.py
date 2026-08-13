@@ -15,7 +15,7 @@ def cache_key(path: str) -> str:
 
 
 def get(path: str) -> bytes | None:
-	return frappe.cache().get_value(cache_key(path))
+	return frappe.cache().get_value(cache_key(path), expires=True)
 
 
 def set(path: str, content: bytes) -> None:

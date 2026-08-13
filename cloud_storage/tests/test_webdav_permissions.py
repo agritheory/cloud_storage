@@ -252,6 +252,24 @@ def test_propfind_on_shared_subfolder_lists_children(dav_request, track_files):
 	assert b"webdav_perm_subfolder_child.txt" in resp.get_data()
 
 
+def test_os_metadata_roundtrip_where_user_can_write(dav_request):
+	# Regression for the frappe.local.cache staleness bug in memory.get().
+	frappe.set_user(SHARED_VIEWER)
+
+	put_resp = dav_request("PUT", "/dav/.DS_Store", data=b"roundtrip")
+	assert put_resp.status_code in (200, 201, 204)
+
+	get_resp = dav_request("GET", "/dav/.DS_Store")
+	assert get_resp.status_code == 200
+	assert get_resp.get_data() == b"roundtrip"
+
+	delete_resp = dav_request("DELETE", "/dav/.DS_Store")
+	assert delete_resp.status_code in (200, 204)
+
+	missing_resp = dav_request("GET", "/dav/.DS_Store")
+	assert missing_resp.status_code == 404
+
+
 def test_os_metadata_put_denied_without_write_permission(dav_request):
 	frappe.set_user("Administrator")
 	folder = create_new_folder("WebdavOSMetaNoWrite", "Home")
