@@ -58,7 +58,8 @@ class CloudStorageFile(File):
 				return
 			path = self.get_full_path()
 		base_path = os.path.realpath(get_files_path(is_private=self.is_private))
-		if not os.path.realpath(path).startswith(base_path):
+		resolved_path = os.path.realpath(path)
+		if os.path.commonpath((base_path, resolved_path)) != base_path:
 			frappe.throw(_("The File URL you've entered is incorrect"), title=_("Invalid File URL"))
 
 	def validate(self) -> None:
