@@ -250,3 +250,78 @@ def test_propfind_on_shared_subfolder_lists_children(dav_request, track_files):
 	resp = dav_request("PROPFIND", "/dav/WebdavPermSharedSubfolder/", headers={"Depth": "1"})
 	assert resp.status_code == 207
 	assert b"webdav_perm_subfolder_child.txt" in resp.get_data()
+
+
+def test_os_metadata_put_denied_without_write_permission(dav_request):
+	frappe.set_user("Administrator")
+	folder = create_new_folder("WebdavOSMetaNoWrite", "Home")
+	frappe.share.add("File", folder.name, user=SHARED_VIEWER, read=1)
+
+	frappe.set_user(SHARED_VIEWER)
+	resp = dav_request("PUT", "/dav/WebdavOSMetaNoWrite/.DS_Store", data=b"blocked")
+	assert resp.status_code == 403
+
+	frappe.set_user("Administrator")
+	frappe.delete_doc("File", folder.name, force=True, ignore_permissions=True)
+
+
+def test_os_metadata_delete_denied_without_write_permission(dav_request):
+	frappe.set_user("Administrator")
+	folder = create_new_folder("WebdavOSMetaNoDelete", "Home")
+	frappe.share.add("File", folder.name, user=SHARED_VIEWER, read=1)
+	put_resp = dav_request("PUT", "/dav/WebdavOSMetaNoDelete/.DS_Store", data=b"admin metadata")
+	assert put_resp.status_code in (200, 201, 204)
+
+	frappe.set_user(SHARED_VIEWER)
+	resp = dav_request("DELETE", "/dav/WebdavOSMetaNoDelete/.DS_Store")
+	assert resp.status_code == 403
+
+	frappe.set_user("Administrator")
+	get_resp = dav_request("GET", "/dav/WebdavOSMetaNoDelete/.DS_Store")
+	assert get_resp.status_code == 200
+	assert get_resp.get_data() == b"admin metadata"
+
+	dav_request("DELETE", "/dav/WebdavOSMetaNoDelete/.DS_Store")
+	frappe.delete_doc("File", folder.name, force=True, ignore_permissions=True)
+
+
+def test_os_metadata_hidden_from_directory_listing_without_read_permission(dav_request):
+	frappe.set_user("Administrator")
+	folder = create_new_folder("WebdavOSMetaNoRead", "Home")
+	put_resp = dav_request("PUT", "/dav/WebdavOSMetaNoRead/.DS_Store", data=b"admin only")
+	assert put_resp.status_code in (200, 201, 204)
+
+	frappe.set_user(SHARED_VIEWER)
+	resp = dav_request("GET", "/dav/WebdavOSMetaNoRead/.DS_Store")
+	assert resp.status_code == 404
+
+	frappe.set_user("Administrator")
+	dav_request("DELETE", "/dav/WebdavOSMetaNoRead/.DS_Store")
+	frappe.delete_doc("File", folder.name, force=True, ignore_permissions=True)
+
+
+def test_os_metadata_readable_in_folder_inherited_from_shared_grandparent(dav_request):
+	# Regression for a folder only reachable via DocShare inheritance, not
+	# shared itself. Seeded directly — PUT hits the unrelated Redis write
+	# bug documented in the plan, GET doesn't.
+	from cloud_storage.cloud_storage.webdav import memory as os_file_store
+
+	frappe.set_user("Administrator")
+	parent = create_new_folder("WebdavOSMetaInheritParent", "Home")
+	frappe.db.set_value("File", parent.name, "is_private", 1)
+	frappe.share.add("File", parent.name, user=SHARED_VIEWER, read=1)
+	child = create_new_folder("WebdavOSMetaInheritChild", parent.name)
+	frappe.db.set_value("File", child.name, "is_private", 1)
+
+	key = "/WebdavOSMetaInheritParent/WebdavOSMetaInheritChild/.DS_Store"
+	os_file_store.set(key, b"inherited read")
+
+	frappe.set_user(SHARED_VIEWER)
+	resp = dav_request("GET", "/dav/WebdavOSMetaInheritParent/WebdavOSMetaInheritChild/.DS_Store")
+	assert resp.status_code == 200
+	assert resp.get_data() == b"inherited read"
+
+	frappe.set_user("Administrator")
+	os_file_store.delete(key)
+	frappe.delete_doc("File", child.name, force=True, ignore_permissions=True)
+	frappe.delete_doc("File", parent.name, force=True, ignore_permissions=True)

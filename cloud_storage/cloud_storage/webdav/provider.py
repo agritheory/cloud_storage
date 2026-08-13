@@ -29,6 +29,7 @@ from cloud_storage.cloud_storage.webdav.buffers import (
 from cloud_storage.cloud_storage.webdav.permissions import (
 	can as _can,
 	can_create as _can_create,
+	can_read_folder as _can_read_folder,
 	can_write_folder as _can_write_folder,
 	folder_display_name as _folder_display_name,
 	folder_parent as frappe_folder_parent,
@@ -118,7 +119,7 @@ def strip_dav_prefix(path: str) -> str:
 def split_dav_path(path: str) -> list[str]:
 	path = strip_dav_prefix(path).strip("/")
 	parts = [unquote(part) for part in path.split("/") if part]
-	if any(part in (".", "..") for part in parts):
+	if any(part in (".", "..") or "/" in part or "\\" in part for part in parts):
 		raise DAVError(HTTP_FORBIDDEN, "invalid path segment")
 	return parts
 
@@ -183,8 +184,10 @@ class FrappeCollection(DAVCollection):
 		child_path = self.path.rstrip("/") + "/" + name
 
 		if is_os_metadata(name):
+			if not _can_read_folder(self.frappe_folder):
+				return None
 			if os_file_store.contains(child_path):
-				return _MemoryFile(child_path, self.environ, name)
+				return _MemoryFile(child_path, self.environ, name, self.frappe_folder)
 			return None
 
 		folder_match = frappe.get_list(
@@ -210,13 +213,12 @@ class FrappeCollection(DAVCollection):
 
 	def create_empty_resource(self, name: str):
 		child_path = self.path.rstrip("/") + "/" + name
-		# OS metadata files go to in-memory store, not Frappe/S3.
-		if is_os_metadata(name):
-			return _MemoryFile(child_path, self.environ, name)
 		if not _can_create():
 			raise DAVError(HTTP_FORBIDDEN)
 		if not _can_write_folder(self.frappe_folder):
 			raise DAVError(HTTP_FORBIDDEN)
+		if is_os_metadata(name):
+			return _MemoryFile(child_path, self.environ, name, self.frappe_folder)
 		return FrappeNewFile(child_path, self.environ, self.frappe_folder, name)
 
 	def create_collection(self, name: str):
@@ -385,9 +387,10 @@ FILE_FIELDS = [
 class _MemoryFile(DAVNonCollection):
 	"""In-memory resource for OS metadata files (._*, .DS_Store, ...)."""
 
-	def __init__(self, path: str, environ: dict, file_name: str) -> None:
+	def __init__(self, path: str, environ: dict, file_name: str, frappe_folder: str) -> None:
 		super().__init__(path, environ)
 		self.file_name = file_name
+		self.frappe_folder = frappe_folder
 
 	def raw_content(self) -> bytes:
 		return os_file_store.get(self.path) or b""
@@ -423,16 +426,24 @@ class _MemoryFile(DAVNonCollection):
 		return io.BytesIO(self.raw_content())
 
 	def begin_write(self, content_type: str | None = None):
+		if not _can_write_folder(self.frappe_folder):
+			raise DAVError(HTTP_FORBIDDEN)
 		return _MemoryBuffer(self.path)
 
 	def delete(self):
+		if not _can_write_folder(self.frappe_folder):
+			raise DAVError(HTTP_FORBIDDEN)
 		os_file_store.delete(self.path)
 
 	def handle_move(self, dest_path: str) -> bool:
-		dest = strip_dav_prefix(dest_path).rstrip("/")
-		if not dest:
-			raise DAVError(HTTP_FORBIDDEN, "invalid destination")
-		os_file_store.set(unquote(dest), self.raw_content())
+		if not _can_write_folder(self.frappe_folder):
+			raise DAVError(HTTP_FORBIDDEN)
+		new_folder, new_name = parse_dest(dest_path)
+		if not _can_write_folder(new_folder):
+			raise DAVError(HTTP_FORBIDDEN)
+		dav_folder = new_folder[len("Home") :]
+		new_key = f"{dav_folder}/{new_name}" if dav_folder else f"/{new_name}"
+		os_file_store.set(new_key, self.raw_content())
 		os_file_store.delete(self.path)
 		return True
 
@@ -777,8 +788,10 @@ class FrappeDAVProvider(DAVProvider):
 		last = parts[-1]
 
 		if is_os_metadata(last):
+			if not _can_read_folder(frappe_folder):
+				return None
 			if os_file_store.contains(path):
-				return _MemoryFile(path, environ, last)
+				return _MemoryFile(path, environ, last, frappe_folder)
 			return None
 
 		folder_match = frappe.get_list(
