@@ -120,3 +120,21 @@ def dav_request():
 		return invoke_webdav(builder.get_request())
 
 	return send_dav_request
+
+
+@pytest.fixture
+def track_files():
+	"""Register File docs for teardown cleanup that runs even on assertion failure."""
+	created = []
+
+	def track(name):
+		created.append(name)
+		return name
+
+	yield track
+
+	frappe.set_user("Administrator")
+	# reversed: a folder registered before its children would hit FolderNotEmpty
+	for name in reversed(created):
+		if name and frappe.db.exists("File", name):
+			frappe.delete_doc("File", name, force=True, ignore_permissions=True)
