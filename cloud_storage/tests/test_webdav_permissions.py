@@ -320,10 +320,7 @@ def test_os_metadata_hidden_from_directory_listing_without_read_permission(dav_r
 
 def test_os_metadata_readable_in_folder_inherited_from_shared_grandparent(dav_request):
 	# Regression for a folder only reachable via DocShare inheritance, not
-	# shared itself. Seeded directly — PUT hits the unrelated Redis write
-	# bug documented in the plan, GET doesn't.
-	from cloud_storage.cloud_storage.webdav import memory as os_file_store
-
+	# shared itself.
 	frappe.set_user("Administrator")
 	parent = create_new_folder("WebdavOSMetaInheritParent", "Home")
 	frappe.db.set_value("File", parent.name, "is_private", 1)
@@ -331,8 +328,12 @@ def test_os_metadata_readable_in_folder_inherited_from_shared_grandparent(dav_re
 	child = create_new_folder("WebdavOSMetaInheritChild", parent.name)
 	frappe.db.set_value("File", child.name, "is_private", 1)
 
-	key = "/WebdavOSMetaInheritParent/WebdavOSMetaInheritChild/.DS_Store"
-	os_file_store.set(key, b"inherited read")
+	put_resp = dav_request(
+		"PUT",
+		"/dav/WebdavOSMetaInheritParent/WebdavOSMetaInheritChild/.DS_Store",
+		data=b"inherited read",
+	)
+	assert put_resp.status_code in (200, 201, 204)
 
 	frappe.set_user(SHARED_VIEWER)
 	resp = dav_request("GET", "/dav/WebdavOSMetaInheritParent/WebdavOSMetaInheritChild/.DS_Store")
@@ -340,6 +341,94 @@ def test_os_metadata_readable_in_folder_inherited_from_shared_grandparent(dav_re
 	assert resp.get_data() == b"inherited read"
 
 	frappe.set_user("Administrator")
-	os_file_store.delete(key)
+	dav_request("DELETE", "/dav/WebdavOSMetaInheritParent/WebdavOSMetaInheritChild/.DS_Store")
 	frappe.delete_doc("File", child.name, force=True, ignore_permissions=True)
 	frappe.delete_doc("File", parent.name, force=True, ignore_permissions=True)
+
+
+def test_os_metadata_move_denied_without_write_permission_on_source(dav_request, track_files):
+	frappe.set_user("Administrator")
+	folder = create_new_folder("WebdavOSMetaMoveSrcDenied", "Home")
+	track_files(folder.name)
+	frappe.share.add("File", folder.name, user=SHARED_VIEWER, read=1)
+	put_resp = dav_request("PUT", "/dav/WebdavOSMetaMoveSrcDenied/.DS_Store", data=b"stay put")
+	assert put_resp.status_code in (200, 201, 204)
+
+	frappe.set_user(SHARED_VIEWER)
+	resp = dav_request(
+		"MOVE",
+		"/dav/WebdavOSMetaMoveSrcDenied/.DS_Store",
+		headers={"Destination": "http://localhost/dav/.DS_Store"},
+	)
+	assert resp.status_code == 403
+
+	frappe.set_user("Administrator")
+	still_there = dav_request("GET", "/dav/WebdavOSMetaMoveSrcDenied/.DS_Store")
+	assert still_there.status_code == 200
+	assert still_there.get_data() == b"stay put"
+	not_moved = dav_request("GET", "/dav/.DS_Store")
+	assert not_moved.status_code == 404
+
+	dav_request("DELETE", "/dav/WebdavOSMetaMoveSrcDenied/.DS_Store")
+
+
+def test_os_metadata_move_denied_without_write_permission_on_destination(dav_request, track_files):
+	# OTHER_USER, not SHARED_VIEWER: a non-SM actor can't even see an
+	# is_private=0 folder via get_list, giving 409 instead of this test's 403.
+	frappe.set_user("Administrator")
+	locked_folder = create_new_folder("WebdavOSMetaMoveDestDenied", "Home")
+	track_files(locked_folder.name)
+
+	frappe.set_user(OTHER_USER)
+	put_resp = dav_request("PUT", "/dav/webdav_osmeta_move_dest.DS_Store", data=b"mine")
+	assert put_resp.status_code in (200, 201, 204)
+
+	resp = dav_request(
+		"MOVE",
+		"/dav/webdav_osmeta_move_dest.DS_Store",
+		headers={
+			"Destination": "http://localhost/dav/WebdavOSMetaMoveDestDenied/webdav_osmeta_move_dest.DS_Store"
+		},
+	)
+	assert resp.status_code == 403
+
+	still_there = dav_request("GET", "/dav/webdav_osmeta_move_dest.DS_Store")
+	assert still_there.status_code == 200
+	assert still_there.get_data() == b"mine"
+	not_moved = dav_request("GET", "/dav/WebdavOSMetaMoveDestDenied/webdav_osmeta_move_dest.DS_Store")
+	assert not_moved.status_code == 404
+
+	dav_request("DELETE", "/dav/webdav_osmeta_move_dest.DS_Store")
+	frappe.set_user("Administrator")
+
+
+def test_os_metadata_move_allowed_moves_content_and_removes_source(dav_request, track_files):
+	frappe.set_user(SHARED_VIEWER)
+	mkcol_resp = dav_request("MKCOL", "/dav/WebdavOSMetaMoveAllowed")
+	assert mkcol_resp.status_code in (200, 201)
+	folder_name = frappe.db.get_value(
+		"File", {"folder": "Home", "file_name": "WebdavOSMetaMoveAllowed", "is_folder": 1}, "name"
+	)
+	track_files(folder_name)
+
+	put_resp = dav_request("PUT", "/dav/webdav_osmeta_move_ok.DS_Store", data=b"relocate me")
+	assert put_resp.status_code in (200, 201, 204)
+
+	move_resp = dav_request(
+		"MOVE",
+		"/dav/webdav_osmeta_move_ok.DS_Store",
+		headers={
+			"Destination": "http://localhost/dav/WebdavOSMetaMoveAllowed/webdav_osmeta_move_ok.DS_Store"
+		},
+	)
+	assert move_resp.status_code in (201, 204)
+
+	at_destination = dav_request("GET", "/dav/WebdavOSMetaMoveAllowed/webdav_osmeta_move_ok.DS_Store")
+	assert at_destination.status_code == 200
+	assert at_destination.get_data() == b"relocate me"
+
+	at_source = dav_request("GET", "/dav/webdav_osmeta_move_ok.DS_Store")
+	assert at_source.status_code == 404
+
+	frappe.set_user("Administrator")
+	dav_request("DELETE", "/dav/WebdavOSMetaMoveAllowed/webdav_osmeta_move_ok.DS_Store")

@@ -102,6 +102,27 @@ def mocked_s3_client():
 
 
 @pytest.fixture
+def s3_backend(mocked_s3_client):
+	from unittest.mock import patch
+
+	with (
+		patch(
+			"cloud_storage.cloud_storage.webdav.paths.get_cloud_storage_client",
+			return_value=mocked_s3_client,
+		),
+		patch(
+			"cloud_storage.cloud_storage.webdav.provider.get_cloud_storage_client",
+			return_value=mocked_s3_client,
+		),
+		patch(
+			"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+			return_value=mocked_s3_client,
+		),
+	):
+		yield mocked_s3_client
+
+
+@pytest.fixture
 def local_storage():
 	old = getattr(frappe.conf, "cloud_storage_settings", None)
 	frappe.conf.cloud_storage_settings = {"use_local": True}
