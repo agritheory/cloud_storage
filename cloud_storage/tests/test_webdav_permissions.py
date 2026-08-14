@@ -373,33 +373,33 @@ def test_os_metadata_move_denied_without_write_permission_on_source(dav_request,
 
 
 def test_os_metadata_move_denied_without_write_permission_on_destination(dav_request, track_files):
-	# OTHER_USER, not SHARED_VIEWER: a non-SM actor can't even see an
-	# is_private=0 folder via get_list, giving 409 instead of this test's 403.
+	# OTHER_USER, not SHARED_VIEWER: destination-collection resolution goes
+	# through can_read_folder before the write check, so a non-SM actor gets
+	# 409 (can't see the folder) instead of this test's 403.
 	frappe.set_user("Administrator")
 	locked_folder = create_new_folder("WebdavOSMetaMoveDestDenied", "Home")
 	track_files(locked_folder.name)
 
 	frappe.set_user(OTHER_USER)
-	put_resp = dav_request("PUT", "/dav/webdav_osmeta_move_dest.DS_Store", data=b"mine")
+	put_resp = dav_request("PUT", "/dav/.DS_Store", data=b"mine")
 	assert put_resp.status_code in (200, 201, 204)
 
 	resp = dav_request(
 		"MOVE",
-		"/dav/webdav_osmeta_move_dest.DS_Store",
-		headers={
-			"Destination": "http://localhost/dav/WebdavOSMetaMoveDestDenied/webdav_osmeta_move_dest.DS_Store"
-		},
+		"/dav/.DS_Store",
+		headers={"Destination": "http://localhost/dav/WebdavOSMetaMoveDestDenied/.DS_Store"},
 	)
 	assert resp.status_code == 403
 
-	still_there = dav_request("GET", "/dav/webdav_osmeta_move_dest.DS_Store")
+	still_there = dav_request("GET", "/dav/.DS_Store")
 	assert still_there.status_code == 200
 	assert still_there.get_data() == b"mine"
-	not_moved = dav_request("GET", "/dav/WebdavOSMetaMoveDestDenied/webdav_osmeta_move_dest.DS_Store")
+
+	frappe.set_user("Administrator")
+	not_moved = dav_request("GET", "/dav/WebdavOSMetaMoveDestDenied/.DS_Store")
 	assert not_moved.status_code == 404
 
-	dav_request("DELETE", "/dav/webdav_osmeta_move_dest.DS_Store")
-	frappe.set_user("Administrator")
+	dav_request("DELETE", "/dav/.DS_Store")
 
 
 def test_os_metadata_move_allowed_moves_content_and_removes_source(dav_request, track_files):
@@ -411,24 +411,22 @@ def test_os_metadata_move_allowed_moves_content_and_removes_source(dav_request, 
 	)
 	track_files(folder_name)
 
-	put_resp = dav_request("PUT", "/dav/webdav_osmeta_move_ok.DS_Store", data=b"relocate me")
+	put_resp = dav_request("PUT", "/dav/.DS_Store", data=b"relocate me")
 	assert put_resp.status_code in (200, 201, 204)
 
 	move_resp = dav_request(
 		"MOVE",
-		"/dav/webdav_osmeta_move_ok.DS_Store",
-		headers={
-			"Destination": "http://localhost/dav/WebdavOSMetaMoveAllowed/webdav_osmeta_move_ok.DS_Store"
-		},
+		"/dav/.DS_Store",
+		headers={"Destination": "http://localhost/dav/WebdavOSMetaMoveAllowed/.DS_Store"},
 	)
 	assert move_resp.status_code in (201, 204)
 
-	at_destination = dav_request("GET", "/dav/WebdavOSMetaMoveAllowed/webdav_osmeta_move_ok.DS_Store")
+	at_destination = dav_request("GET", "/dav/WebdavOSMetaMoveAllowed/.DS_Store")
 	assert at_destination.status_code == 200
 	assert at_destination.get_data() == b"relocate me"
 
-	at_source = dav_request("GET", "/dav/webdav_osmeta_move_ok.DS_Store")
+	at_source = dav_request("GET", "/dav/.DS_Store")
 	assert at_source.status_code == 404
 
 	frappe.set_user("Administrator")
-	dav_request("DELETE", "/dav/WebdavOSMetaMoveAllowed/webdav_osmeta_move_ok.DS_Store")
+	dav_request("DELETE", "/dav/WebdavOSMetaMoveAllowed/.DS_Store")
