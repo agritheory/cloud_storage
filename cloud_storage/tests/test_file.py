@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import frappe
 import pytest
-from conftest import mocked_s3_client
 from moto import mock_s3
 from werkzeug.datastructures import FileMultiDict
 
@@ -328,18 +327,24 @@ def test_library_select_preserves_file_url():
 
 @mock_s3
 def test_associate_files_no_duplicate_association():
-	"""Associating the same link twice must not grow a duplicate file_association row."""
+	"""Associating the same link twice must not duplicate the row on the merged file"""
 	frappe.set_user("Administrator")
-	file = raw_file("test-assoc-guard", "assocguardhashassocguardhash0001")
-	before = len(file.file_association)
+	content_hash = "assocguardhashassocguardhash0001"
+	file_a = raw_file("test-assoc-guard-a", content_hash)
+	raw_file("test-assoc-guard-b", content_hash)
 
-	file.associate_files("Module Def", "Cloud Storage")
-	after_first = len(file.file_association)
-	file.associate_files("Module Def", "Cloud Storage")
-	after_second = len(file.file_association)
+	doc = frappe.get_doc("File", file_a.name)
+	doc.associate_files("Module Def", "Cloud Storage")
+	doc.associate_files("Module Def", "Cloud Storage")
 
-	assert after_first == before + 1
-	assert after_second == after_first  # already_linked guard prevents duplicate
+
+	file_b = frappe.get_doc("File", "test-assoc-guard-b")
+	matching = [
+		a
+		for a in file_b.file_association
+		if a.link_doctype == "Module Def" and a.link_name == "Cloud Storage"
+	]
+	assert len(matching) == 1
 
 
 def test_migration_command(mocked_s3_client, example_file_record_6):

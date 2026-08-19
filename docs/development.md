@@ -4,7 +4,7 @@ For license information, please see license.txt-->
 # Cloud Storage Developer Setup
 
 <div class="byline">
-  Tyler Matteson and semantic-release 2026-02-21
+  semantic-release 2026-05-28
 </div>
 
 
@@ -78,7 +78,13 @@ mypy ./apps/cloud_storage/cloud_storage --ignore-missing-imports
 ```
 
 11. To run `pytest` locally
+
 ```shell
+source env/bin/activate
 bench setup requirements --dev
-pytest
+bench --site {{ site name }} install-app cloud_storage
+bench --site {{ site name }} execute 'cloud_storage.tests.setup.before_test'
+
+cd apps/cloud_storage
+pytest cloud_storage/tests/ -v
 ```

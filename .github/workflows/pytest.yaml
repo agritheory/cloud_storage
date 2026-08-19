@@ -89,7 +89,6 @@ jobs:
         run: |
           bash ${GITHUB_WORKSPACE}/.github/helper/install.sh
 
-
       - name: Run Tests
         working-directory: /home/runner/frappe-bench
         run: |
