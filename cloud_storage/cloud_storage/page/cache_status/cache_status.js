@@ -12,28 +12,6 @@ frappe.pages['cache-status'].on_page_load = function (wrapper) {
 	render(page)
 }
 
-const STYLE = `
-	<style>
-		.cache-status-section { margin-bottom: 24px; }
-		.cache-status-section h4 { margin-bottom: 10px; }
-		.cache-status-stats {
-			display: grid;
-			grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-			gap: 12px;
-		}
-		.cache-status-stat {
-			border: 1px solid var(--border-color);
-			border-radius: var(--border-radius);
-			padding: 12px 14px;
-		}
-		.cache-status-stat .value { font-size: 20px; font-weight: 600; }
-		.cache-status-stat .label { font-size: 12px; color: var(--text-muted); }
-		.cache-status-config { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
-		.cache-status-config dt { color: var(--text-muted); }
-		.cache-status-config dd { margin: 0; }
-	</style>
-`
-
 function format_bytes(bytes) {
 	if (bytes === null || bytes === undefined) return '-'
 	const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -70,7 +48,7 @@ function render(page) {
 			} else {
 				page.clear_indicator()
 			}
-			$(page.body).html(STYLE)
+			$(page.body).empty()
 			$(page.body).append(render_stats(data.cache))
 			$(page.body).append(render_health(data.health))
 			$(page.body).append(render_config(data.config))
