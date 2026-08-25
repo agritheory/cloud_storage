@@ -102,7 +102,9 @@ def get_connection() -> sqlite3.Connection:
 		)
 		"""
 	)
-	conn.execute("CREATE INDEX IF NOT EXISTS idx_local_file_cache_s3_key ON local_file_cache (s3_key)")
+	conn.execute(
+		"CREATE INDEX IF NOT EXISTS idx_local_file_cache_s3_key ON local_file_cache (s3_key)"
+	)
 	conn.execute(
 		"""
 		CREATE TABLE IF NOT EXISTS cloud_storage_health (
@@ -122,10 +124,14 @@ def get_connection() -> sqlite3.Connection:
 
 
 def get_health():
-	row = get_connection().execute(
-		"SELECT status, consecutive_failures, degraded_since, last_check_at, last_error "
-		"FROM cloud_storage_health WHERE id = 1"
-	).fetchone()
+	row = (
+		get_connection()
+		.execute(
+			"SELECT status, consecutive_failures, degraded_since, last_check_at, last_error "
+			"FROM cloud_storage_health WHERE id = 1"
+		)
+		.fetchone()
+	)
 	return SimpleNamespace(
 		status=row[0],
 		consecutive_failures=row[1],

@@ -42,7 +42,9 @@ def mark_replicated_if_current(local_file_cache_name, content_hash: str, s3_key:
 
 def replicate_cached_file(local_file_cache_name):
 	conn = get_connection()
-	cursor = conn.execute(f"SELECT {FIELDS} FROM local_file_cache WHERE id = ?", (local_file_cache_name,))
+	cursor = conn.execute(
+		f"SELECT {FIELDS} FROM local_file_cache WHERE id = ?", (local_file_cache_name,)
+	)
 	cache = row_to_record(cursor.fetchone())
 	if not cache:
 		return
@@ -83,9 +85,7 @@ def replicate_cached_file(local_file_cache_name):
 			try:
 				client.delete_object(Bucket=client.bucket, Key=cache.s3_key, VersionId=s3_version_id)
 			except Exception as e:
-				frappe.log_error(
-					str(e), "Cloud Storage Error: Could not delete orphaned replicated object"
-				)
+				frappe.log_error(str(e), "Cloud Storage Error: Could not delete orphaned replicated object")
 		else:
 			frappe.log_error(
 				f"Orphaned replicated object without a VersionId, left in place: {cache.s3_key}",

@@ -4,7 +4,7 @@ For license information, please see license.txt-->
 # Cloud Storage Site Configuration
 
 <div class="byline">
-  Tyler Matteson and semantic-release 2026-02-21
+  Rohan Bansal, Ishwarya, Heather Kusmierz, lauty95, Tyler Matteson, and Francisco Roldán 2026-08-25
 </div>
 
 
