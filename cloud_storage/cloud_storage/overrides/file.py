@@ -199,12 +199,7 @@ class CloudStorageFile(File):
 
 		if self.flags.get("pending_local_cache_path") and frappe.db.exists("File", self.name):
 			local_path = self.flags.pending_local_cache_path
-
-			def admit_after_commit():
-				admit_local_cache_record(self, local_path)
-				enqueue_replication(self.name)
-
-			frappe.db.after_commit(admit_after_commit)
+			frappe.db.after_commit(lambda: admit_and_enqueue_replication(self, local_path))
 
 	def on_trash(self) -> None:
 		"""
@@ -734,6 +729,13 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 	return cache_file_locally(file)
 
 
+def admit_and_enqueue_replication(file: File, local_path: str) -> None:
+	previous_local_path = admit_local_cache_record(file, local_path)
+	if previous_local_path and os.path.exists(previous_local_path):
+		os.remove(previous_local_path)
+	enqueue_replication(file.name)
+
+
 def cache_file_locally(file: File) -> File:
 	"""Write bytes to the local cache and enqueue replication instead of uploading
 	synchronously. New files don't have a name yet at this point (before_insert
@@ -752,14 +754,7 @@ def cache_file_locally(file: File) -> File:
 	local_path = write_local_cache_bytes(file)
 
 	if file.name:
-
-		def admit_after_commit():
-			previous_local_path = admit_local_cache_record(file, local_path)
-			if previous_local_path and os.path.exists(previous_local_path):
-				os.remove(previous_local_path)
-			enqueue_replication(file.name)
-
-		frappe.db.after_commit(admit_after_commit)
+		frappe.db.after_commit(lambda: admit_and_enqueue_replication(file, local_path))
 	else:
 		file.flags.pending_local_cache_path = local_path
 
