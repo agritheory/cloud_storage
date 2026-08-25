@@ -32,7 +32,7 @@ def mark_replicated_if_current(local_file_cache_name, content_hash: str, s3_key:
 	conn.execute("BEGIN IMMEDIATE")
 	cursor = conn.execute(
 		"UPDATE local_file_cache SET replicated=1, replicated_at=?, last_replication_error=NULL "
-		"WHERE id=? AND content_hash=? AND s3_key=? AND replicated=0 AND pending_delete=0",
+		"WHERE file=? AND content_hash=? AND s3_key=? AND replicated=0 AND pending_delete=0",
 		(iso(now), local_file_cache_name, content_hash, s3_key),
 	)
 	applied = cursor.rowcount > 0
@@ -43,7 +43,7 @@ def mark_replicated_if_current(local_file_cache_name, content_hash: str, s3_key:
 def replicate_cached_file(local_file_cache_name):
 	conn = get_connection()
 	cursor = conn.execute(
-		f"SELECT {FIELDS} FROM local_file_cache WHERE id = ?", (local_file_cache_name,)
+		f"SELECT {FIELDS} FROM local_file_cache WHERE file = ?", (local_file_cache_name,)
 	)
 	cache = row_to_record(cursor.fetchone())
 	if not cache:
@@ -71,7 +71,7 @@ def replicate_cached_file(local_file_cache_name):
 	except Exception as e:
 		conn.execute(
 			"UPDATE local_file_cache SET replication_attempts=replication_attempts+1, "
-			"last_replication_error=? WHERE id=?",
+			"last_replication_error=? WHERE file=?",
 			(str(e), local_file_cache_name),
 		)
 		return
@@ -158,12 +158,12 @@ def retry_pending_replications():
 
 	max_retries = (frappe.conf.cloud_storage_settings or {}).get("replication_max_retries", 10)
 	cursor = get_connection().execute(
-		"SELECT id FROM local_file_cache WHERE replicated=0 AND pending_delete=0 "
+		"SELECT file FROM local_file_cache WHERE replicated=0 AND pending_delete=0 "
 		"AND replication_attempts < ? ORDER BY creation ASC",
 		(max_retries,),
 	)
-	for (cache_id,) in cursor.fetchall():
-		replicate_cached_file(cache_id)
+	for (file_name,) in cursor.fetchall():
+		replicate_cached_file(file_name)
 
 
 def process_pending_deletes():
@@ -193,10 +193,17 @@ def reconcile_local_cache():
 
 	conn = get_connection()
 	live_rows = conn.execute(
-		"SELECT id, local_path FROM local_file_cache WHERE evicted=0 AND pending_delete=0"
+		"SELECT id, file, local_path FROM local_file_cache WHERE evicted=0 AND pending_delete=0"
 	).fetchall()
 	known_paths = set()
-	for cache_id, local_path in live_rows:
+	for cache_id, file_name, local_path in live_rows:
+		if not frappe.db.exists("File", file_name):
+			# admission raced ahead of a MariaDB commit that never happened (e.g. a rolled-back
+			# request) - the row and its bytes reference a File that was never actually created.
+			if local_path and os.path.exists(local_path):
+				os.remove(local_path)
+			conn.execute("DELETE FROM local_file_cache WHERE id=?", (cache_id,))
+			continue
 		if local_path and os.path.exists(local_path):
 			known_paths.add(Path(local_path))
 		else:

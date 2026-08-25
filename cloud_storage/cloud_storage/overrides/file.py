@@ -198,8 +198,13 @@ class CloudStorageFile(File):
 				frappe.delete_doc("File", self.name, ignore_permissions=True)
 
 		if self.flags.get("pending_local_cache_path") and frappe.db.exists("File", self.name):
-			admit_local_cache_record(self, self.flags.pending_local_cache_path)
-			enqueue_replication(self.name)
+			local_path = self.flags.pending_local_cache_path
+
+			def admit_after_commit():
+				admit_local_cache_record(self, local_path)
+				enqueue_replication(self.name)
+
+			frappe.db.after_commit(admit_after_commit)
 
 	def on_trash(self) -> None:
 		"""
@@ -747,10 +752,14 @@ def cache_file_locally(file: File) -> File:
 	local_path = write_local_cache_bytes(file)
 
 	if file.name:
-		previous_local_path = admit_local_cache_record(file, local_path)
-		if previous_local_path and os.path.exists(previous_local_path):
-			os.remove(previous_local_path)
-		enqueue_replication(file.name)
+
+		def admit_after_commit():
+			previous_local_path = admit_local_cache_record(file, local_path)
+			if previous_local_path and os.path.exists(previous_local_path):
+				os.remove(previous_local_path)
+			enqueue_replication(file.name)
+
+		frappe.db.after_commit(admit_after_commit)
 	else:
 		file.flags.pending_local_cache_path = local_path
 
