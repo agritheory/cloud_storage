@@ -5,6 +5,7 @@ from cloud_storage.cloud_storage.local_cache import (
 	get_cached_bytes_total,
 	get_connection,
 	get_emergency_cache_size_bytes,
+	get_health,
 	get_max_cache_size_bytes,
 	get_unevictable_bytes_total,
 	is_local_cache_enabled,
@@ -20,17 +21,17 @@ def config_summary(config: dict) -> dict:
 		"cache_retention_minutes": config.get("cache_retention_minutes", 60),
 		"warm_on_read": config.get("warm_on_read", True),
 		"replication_max_retries": config.get("replication_max_retries", 10),
+		"failure_threshold": config.get("failure_threshold", 3),
 	}
 
 
-def health_summary(health: dict) -> dict:
+def health_summary(health) -> dict:
 	return {
-		"status": health.get("status"),
-		"consecutive_failures": health.get("consecutive_failures"),
-		"failure_threshold": health.get("failure_threshold"),
-		"degraded_since": str(health.get("degraded_since")) if health.get("degraded_since") else None,
-		"last_error": health.get("last_error"),
-		"last_check_at": str(health.get("last_check_at")) if health.get("last_check_at") else None,
+		"status": health.status,
+		"consecutive_failures": health.consecutive_failures,
+		"degraded_since": health.degraded_since,
+		"last_error": health.last_error,
+		"last_check_at": health.last_check_at,
 	}
 
 
@@ -39,12 +40,11 @@ def get_status():
 	frappe.only_for("System Manager")
 
 	config = frappe.conf.cloud_storage_settings or {}
-	health = frappe.db.get_singles_dict("Cloud Storage Health")
 
 	if not is_local_cache_enabled():
 		return {
 			"config": config_summary(config),
-			"health": health_summary(health),
+			"health": None,
 			"cache": None,
 			"recent": [],
 		}
@@ -65,7 +65,7 @@ def get_status():
 
 	return {
 		"config": config_summary(config),
-		"health": health_summary(health),
+		"health": health_summary(get_health()),
 		"cache": {
 			"total_rows": total_rows or 0,
 			"live_rows": live_rows or 0,

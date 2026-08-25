@@ -34,7 +34,12 @@ def is_warm_on_read_enabled() -> bool:
 
 
 def is_cloud_storage_degraded() -> bool:
-	return is_local_cache_enabled() and frappe.db.get_single_value("Cloud Storage Health", "status") == "Degraded"
+	return is_local_cache_enabled() and get_health().status == "Degraded"
+
+
+def get_failure_threshold() -> int:
+	config = frappe.conf.cloud_storage_settings or {}
+	return int(config.get("failure_threshold", 3))
 
 
 def get_max_cache_size_bytes() -> int:
@@ -98,7 +103,42 @@ def get_connection() -> sqlite3.Connection:
 		"""
 	)
 	conn.execute("CREATE INDEX IF NOT EXISTS idx_local_file_cache_s3_key ON local_file_cache (s3_key)")
+	conn.execute(
+		"""
+		CREATE TABLE IF NOT EXISTS cloud_storage_health (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			status TEXT DEFAULT 'Healthy',
+			consecutive_failures INTEGER DEFAULT 0,
+			degraded_since TEXT,
+			last_check_at TEXT,
+			last_error TEXT
+		)
+		"""
+	)
+	conn.execute(
+		"INSERT OR IGNORE INTO cloud_storage_health (id, status, consecutive_failures) VALUES (1, 'Healthy', 0)"
+	)
 	return conn
+
+
+def get_health():
+	row = get_connection().execute(
+		"SELECT status, consecutive_failures, degraded_since, last_check_at, last_error "
+		"FROM cloud_storage_health WHERE id = 1"
+	).fetchone()
+	return SimpleNamespace(
+		status=row[0],
+		consecutive_failures=row[1],
+		degraded_since=row[2],
+		last_check_at=row[3],
+		last_error=row[4],
+	)
+
+
+def update_health(updates: dict) -> None:
+	set_clause = ", ".join(f"{key} = ?" for key in updates)
+	params = [iso(value) if hasattr(value, "strftime") else value for value in updates.values()]
+	get_connection().execute(f"UPDATE cloud_storage_health SET {set_clause} WHERE id = 1", params)
 
 
 def row_to_record(row):

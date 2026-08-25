@@ -13,6 +13,8 @@ from cloud_storage.cloud_storage.local_cache import (
 	get_cached_bytes_total,
 	get_connection,
 	get_emergency_cache_size_bytes,
+	get_failure_threshold,
+	get_health,
 	get_max_cache_size_bytes,
 	get_retention_cutoff,
 	iso,
@@ -20,6 +22,7 @@ from cloud_storage.cloud_storage.local_cache import (
 	is_local_cache_enabled,
 	read_cache_bytes,
 	row_to_record,
+	update_health,
 )
 from cloud_storage.cloud_storage.overrides.file import get_cloud_storage_client
 
@@ -115,7 +118,7 @@ def check_cloud_health():
 	if not is_local_cache_enabled():
 		return
 
-	health = frappe.get_single("Cloud Storage Health")
+	health = get_health()
 	now = frappe.utils.now_datetime()
 	client = get_cloud_storage_client()
 
@@ -128,10 +131,10 @@ def check_cloud_health():
 			"last_error": str(e),
 			"last_check_at": now,
 		}
-		if consecutive_failures >= (health.failure_threshold or 3) and health.status != "Degraded":
+		if consecutive_failures >= get_failure_threshold() and health.status != "Degraded":
 			updates["status"] = "Degraded"
 			updates["degraded_since"] = now
-		frappe.db.set_single_value("Cloud Storage Health", updates, update_modified=False)
+		update_health(updates)
 		return
 
 	updates = {"consecutive_failures": 0, "last_error": None, "last_check_at": now}
@@ -143,10 +146,10 @@ def check_cloud_health():
 			"UPDATE local_file_cache SET replication_attempts=0, last_replication_error=NULL "
 			"WHERE replicated=0 AND pending_delete=0"
 		)
-		frappe.db.set_single_value("Cloud Storage Health", updates, update_modified=False)
+		update_health(updates)
 		retry_pending_replications()
 		return
-	frappe.db.set_single_value("Cloud Storage Health", updates, update_modified=False)
+	update_health(updates)
 
 
 def retry_pending_replications():

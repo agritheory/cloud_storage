@@ -72,7 +72,11 @@ Set the following keys in your site's configuration file (`/sites/{site_name}/si
 
     // Stop retrying a file's replication to object storage after this many
     // failed attempts. Default: 10
-    "replication_max_retries": 10
+    "replication_max_retries": 10,
+
+    // Consecutive failed health checks before the circuit breaker flips to
+    // Degraded. Default: 3
+    "failure_threshold": 3
   }
   ...
 }
