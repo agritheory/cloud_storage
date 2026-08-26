@@ -61,8 +61,22 @@ def db_instance():
 
 	frappe.init(site=currentsite, sites_path=sites)
 	frappe.connect()
-	frappe.db.commit = MagicMock()
 	yield frappe.db
+
+
+@pytest.fixture(scope="session", autouse=True)
+def mock_commit(db_instance):
+	"""Never commit for real against MariaDB - test isolation, the whole session's writes are
+	discarded when the process exits."""
+	frappe.db.commit = MagicMock()
+	yield frappe.db.commit
+
+
+@pytest.fixture(scope="session", autouse=True)
+def reset_local_cache_index(db_instance):
+	local_cache_dir = Path(frappe.get_site_path("local_cache"))
+	for name in ("index.db", "index.db-wal", "index.db-shm", "index.db-journal"):
+		(local_cache_dir / name).unlink(missing_ok=True)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -83,7 +97,7 @@ def patch_frappe_conf(monkeymodule):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def cleanup_uploaded_files(db_instance):
+def cleanup_uploaded_files(db_instance, reset_local_cache_index):
 	watched_dirs = [
 		Path(frappe.get_site_path("local_cache")),
 		Path(frappe.get_site_path("public", "files")),
