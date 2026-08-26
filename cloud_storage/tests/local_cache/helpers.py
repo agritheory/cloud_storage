@@ -63,7 +63,9 @@ def failing_sql(*fragments):
 	def fake_get_connection():
 		return FailingConnection(real_get_connection(), fragments)
 
-	with patch("cloud_storage.cloud_storage.local_cache.get_connection", side_effect=fake_get_connection):
+	with patch(
+		"cloud_storage.cloud_storage.local_cache.get_connection", side_effect=fake_get_connection
+	):
 		yield
 
 
@@ -109,7 +111,9 @@ def create_uncached_cloud_file(content: bytes, file_name: str) -> CloudStorageFi
 	return file
 
 
-def create_attached_upload(content: bytes, file_name: str, commit: bool = True) -> CloudStorageFile:
+def create_attached_upload(
+	content: bytes, file_name: str, commit: bool = True
+) -> CloudStorageFile:
 	f = BytesIO(content)
 	files = FileMultiDict()
 	files.add_file("file", f, file_name)
@@ -143,11 +147,15 @@ def create_local_only_file(content: bytes, file_name: str) -> CloudStorageFile:
 
 
 def get_cache(file_name: str):
-	cursor = get_connection().execute(f"SELECT {FIELDS} FROM local_file_cache WHERE file = ?", (file_name,))
+	cursor = get_connection().execute(
+		f"SELECT {FIELDS} FROM local_file_cache WHERE file = ?", (file_name,)
+	)
 	return row_to_record(cursor.fetchone())
 
 
 def set_cache_fields(cache, **fields):
 	set_clause = ", ".join(f"{key} = ?" for key in fields)
 	values = [iso(value) if hasattr(value, "strftime") else value for value in fields.values()]
-	get_connection().execute(f"UPDATE local_file_cache SET {set_clause} WHERE id = ?", (*values, cache.id))
+	get_connection().execute(
+		f"UPDATE local_file_cache SET {set_clause} WHERE id = ?", (*values, cache.id)
+	)

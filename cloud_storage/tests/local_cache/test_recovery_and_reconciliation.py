@@ -8,7 +8,12 @@ import frappe
 import pytest
 from botocore.exceptions import ClientError
 
-from cloud_storage.cloud_storage.local_cache import get_cached_bytes_total, get_connection, get_health, update_health
+from cloud_storage.cloud_storage.local_cache import (
+	get_cached_bytes_total,
+	get_connection,
+	get_health,
+	update_health,
+)
 from cloud_storage.cloud_storage.tasks import (
 	check_cloud_health,
 	process_pending_deletes,

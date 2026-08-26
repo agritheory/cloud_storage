@@ -15,7 +15,12 @@ from cloud_storage.cloud_storage.local_cache import (
 )
 from cloud_storage.cloud_storage.tasks import evict_lru_cache
 
-from cloud_storage.tests.local_cache.helpers import create_attached_upload, get_cache, override_cache_settings, set_cache_fields
+from cloud_storage.tests.local_cache.helpers import (
+	create_attached_upload,
+	get_cache,
+	override_cache_settings,
+	set_cache_fields,
+)
 
 
 def test_eviction_removes_oldest_replicated_files_until_under_budget(mocked_s3_client):
@@ -137,9 +142,11 @@ def test_upload_rejected_when_emergency_ceiling_unrecoverable(mocked_s3_client):
 				create_attached_upload(b"H" * 10, file_name="ceiling_rejected.bin")
 
 	assert not frappe.db.exists("File", {"file_name": "ceiling_rejected.bin"})
-	assert not get_connection().execute(
-		"SELECT id FROM local_file_cache WHERE s3_key LIKE '%ceiling_rejected%'"
-	).fetchone()
+	assert (
+		not get_connection()
+		.execute("SELECT id FROM local_file_cache WHERE s3_key LIKE '%ceiling_rejected%'")
+		.fetchone()
+	)
 
 
 def test_oversized_single_file_admitted(mocked_s3_client):
@@ -178,6 +185,8 @@ def test_emergency_ceiling_accounts_for_incoming_file_size(mocked_s3_client):
 				create_attached_upload(b"D" * 10, file_name="ceiling_incoming_rejected.bin")
 
 	assert not frappe.db.exists("File", {"file_name": "ceiling_incoming_rejected.bin"})
-	assert not get_connection().execute(
-		"SELECT id FROM local_file_cache WHERE s3_key LIKE '%ceiling_incoming_rejected%'"
-	).fetchone()
+	assert (
+		not get_connection()
+		.execute("SELECT id FROM local_file_cache WHERE s3_key LIKE '%ceiling_incoming_rejected%'")
+		.fetchone()
+	)

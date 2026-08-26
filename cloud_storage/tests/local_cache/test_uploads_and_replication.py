@@ -57,9 +57,11 @@ def test_duplicate_content_shares_cache_entry(mocked_s3_client):
 	# file2 gets merged into file1 in after_insert(); its own name stops existing.
 	assert not frappe.db.exists("File", file2.name)
 	assert frappe.db.exists("File", file1.name)
-	rows = get_connection().execute(
-		"SELECT id FROM local_file_cache WHERE content_hash = ?", (file1.content_hash,)
-	).fetchall()
+	rows = (
+		get_connection()
+		.execute("SELECT id FROM local_file_cache WHERE content_hash = ?", (file1.content_hash,))
+		.fetchall()
+	)
 	assert len(rows) == 1
 
 
