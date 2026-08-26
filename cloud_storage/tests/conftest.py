@@ -82,6 +82,26 @@ def patch_frappe_conf(monkeymodule):
 	)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_uploaded_files(db_instance):
+	watched_dirs = [
+		Path(frappe.get_site_path("public", "files")),
+		Path(frappe.get_site_path("private", "files")),
+	]
+	before = {d: (set(d.rglob("*")) if d.is_dir() else set()) for d in watched_dirs}
+
+	yield
+
+	for d in watched_dirs:
+		after = set(d.rglob("*")) if d.is_dir() else set()
+		new_paths = sorted(after - before[d], key=lambda p: len(p.parts), reverse=True)
+		for path in new_paths:
+			if path.is_file():
+				path.unlink(missing_ok=True)
+			elif path.is_dir() and not any(path.iterdir()):
+				path.rmdir()
+
+
 @pytest.fixture
 def mocked_s3_client():
 	with mock_s3():
