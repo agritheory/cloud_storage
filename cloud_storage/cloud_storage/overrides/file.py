@@ -63,6 +63,22 @@ class CloudStorageFile(File):
 			return self.file_url.startswith(URL_PREFIXES)  # type: ignore
 		return not self.content
 
+	def validate_file_path(self, path=None):
+		"""
+		HASH: 48366c6ecbad44ed24e6d02bdd8f8f189ce58927
+		REPO: https://github.com/frappe/frappe
+		PATH: frappe/core/doctype/file/file.py
+		METHOD: validate_file_path
+		"""
+		if path is None:
+			if self.is_remote_file:
+				return
+			path = self.get_full_path()
+		base_path = os.path.realpath(get_files_path(is_private=self.is_private))
+		resolved_path = os.path.realpath(path)
+		if os.path.commonpath((base_path, resolved_path)) != base_path:
+			frappe.throw(_("The File URL you've entered is incorrect"), title=_("Invalid File URL"))
+
 	def validate(self) -> None:
 		"""
 		HASH: 69a495579a729909f4df7a45855165eee4a208f4
@@ -329,7 +345,7 @@ class CloudStorageFile(File):
 	@frappe.whitelist()
 	def get_content(self) -> bytes:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 48366c6ecbad44ed24e6d02bdd8f8f189ce58927
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: get_content
@@ -337,6 +353,7 @@ class CloudStorageFile(File):
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))
 
+		self.validate_file_path()
 		if self.get("content"):
 			self._content = self.content
 			if self.decode:  # type: ignore
@@ -366,6 +383,7 @@ class CloudStorageFile(File):
 				file_path = frappe.get_site_path("public", "files", self.file_name)
 			else:
 				file_path = frappe.get_site_path("private", "files", self.file_name)
+			self.validate_file_path(file_path)
 			with open(file_path, mode="rb") as f:
 				self._content = f.read()
 				try:
