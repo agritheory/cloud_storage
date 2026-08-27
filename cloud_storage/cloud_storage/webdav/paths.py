@@ -47,11 +47,8 @@ def get_webdav_path(file: File, folder: str | None) -> str:
 	if hooks:
 		try:
 			return frappe.get_attr(hooks[0])(file, folder)
-		except Exception as e:
-			frappe.log_error(
-				f"cloud_storage_webdav_path_generator failed: {e}",
-				"WebDAV Path Generator Error",
-			)
+		except Exception:
+			frappe.log_error("WebDAV Path Generator Error", frappe.get_traceback())
 	return default_webdav_path(file, folder)
 
 
@@ -73,9 +70,6 @@ def upload_via_webdav(file_doc: File, content: bytes, content_type: str) -> File
 		file_doc.associate_files(file_doc.attached_to_doctype, file_doc.attached_to_name)
 	except S3UploadFailedError:
 		frappe.throw("File Upload Failed. Please try again.")
-	except Exception as e:
-		frappe.log_error("WebDAV upload error", e)
-		raise
 
 	if version_id:
 		file_doc.add_file_version(version_id)
@@ -134,8 +128,8 @@ def replace_existing_via_webdav(existing_doc: File, source_doc: File) -> File:
 		version_id = response.get("VersionId") or source_hash
 	except S3UploadFailedError:
 		frappe.throw("File Upload Failed. Please try again.")
-	except Exception as e:
-		frappe.log_error("WebDAV replace error", e)
+	except Exception:
+		frappe.log_error("WebDAV replace error", frappe.get_traceback())
 		raise
 
 	existing_doc.db_set("file_url", FILE_URL.format(path=dest_path))
