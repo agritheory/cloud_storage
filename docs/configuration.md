@@ -4,7 +4,7 @@ For license information, please see license.txt-->
 # Cloud Storage Site Configuration
 
 <div class="byline">
-  Tyler Matteson and semantic-release 2026-02-21
+  Rohan Bansal, Ishwarya, Heather Kusmierz, lauty95, Tyler Matteson, and Francisco Roldán 2026-08-25
 </div>
 
 
@@ -72,7 +72,11 @@ Set the following keys in your site's configuration file (`/sites/{site_name}/si
 
     // Stop retrying a file's replication to object storage after this many
     // failed attempts. Default: 10
-    "replication_max_retries": 10
+    "replication_max_retries": 10,
+
+    // Consecutive failed health checks before the circuit breaker flips to
+    // Degraded. Default: 3
+    "failure_threshold": 3
   }
   ...
 }

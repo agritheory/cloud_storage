@@ -35,10 +35,12 @@ from cloud_storage.cloud_storage.local_cache import (
 	enforce_local_read_permission,
 	enqueue_replication,
 	get_cached_content,
+	get_connection,
 	get_live_cache_record,
 	is_cloud_storage_degraded,
 	is_emergency_ceiling_unrecoverable,
 	is_local_cache_enabled,
+	is_local_path_shared,
 	read_cache_bytes,
 	touch_cache_access,
 	tombstone_cache_record,
@@ -63,6 +65,22 @@ class CloudStorageFile(File):
 			return self.file_url.startswith(URL_PREFIXES)  # type: ignore
 		return not self.content
 
+	def validate_file_path(self, path=None):
+		"""
+		HASH: 48366c6ecbad44ed24e6d02bdd8f8f189ce58927
+		REPO: https://github.com/frappe/frappe
+		PATH: frappe/core/doctype/file/file.py
+		METHOD: validate_file_path
+		"""
+		if path is None:
+			if self.is_remote_file:
+				return
+			path = self.get_full_path()
+		base_path = os.path.realpath(get_files_path(is_private=self.is_private))
+		resolved_path = os.path.realpath(path)
+		if os.path.commonpath((base_path, resolved_path)) != base_path:
+			frappe.throw(_("The File URL you've entered is incorrect"), title=_("Invalid File URL"))
+
 	def validate(self) -> None:
 		"""
 		HASH: 69a495579a729909f4df7a45855165eee4a208f4
@@ -70,7 +88,9 @@ class CloudStorageFile(File):
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
 		"""
-		self.associate_files()
+		# guard against recursion: associate_files() can save another File, re-entering validate
+		if not self.flags.associating_files:
+			self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		if not self.is_remote_file:
@@ -196,8 +216,8 @@ class CloudStorageFile(File):
 				frappe.delete_doc("File", self.name, ignore_permissions=True)
 
 		if self.flags.get("pending_local_cache_path") and frappe.db.exists("File", self.name):
-			admit_local_cache_record(self, self.flags.pending_local_cache_path)
-			enqueue_replication(self.name)
+			local_path = self.flags.pending_local_cache_path
+			frappe.db.after_commit(lambda: admit_and_enqueue_replication(self, local_path))
 
 	def on_trash(self) -> None:
 		"""
@@ -249,10 +269,16 @@ class CloudStorageFile(File):
 			existing_file = frappe.get_doc("File", associated_doc)
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
-			existing_file.append(
-				"file_association",
-				add_child_file_association(attached_to_doctype, attached_to_name),
+			already_linked = any(
+				assoc.link_doctype == attached_to_doctype and assoc.link_name == attached_to_name
+				for assoc in existing_file.file_association
 			)
+			if not already_linked:
+				existing_file.append(
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
+				)
+			existing_file.flags.associating_files = True
 			existing_file.save()
 		else:
 			if self.file_association:
@@ -321,7 +347,7 @@ class CloudStorageFile(File):
 	@frappe.whitelist()
 	def get_content(self) -> bytes:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 48366c6ecbad44ed24e6d02bdd8f8f189ce58927
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: get_content
@@ -329,6 +355,7 @@ class CloudStorageFile(File):
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))
 
+		self.validate_file_path()
 		if self.get("content"):
 			self._content = self.content
 			if self.decode:  # type: ignore
@@ -358,6 +385,7 @@ class CloudStorageFile(File):
 				file_path = frappe.get_site_path("public", "files", self.file_name)
 			else:
 				file_path = frappe.get_site_path("private", "files", self.file_name)
+			self.validate_file_path(file_path)
 			with open(file_path, mode="rb") as f:
 				self._content = f.read()
 				try:
@@ -721,6 +749,20 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 	return cache_file_locally(file)
 
 
+def admit_and_enqueue_replication(file: File, local_path: str) -> None:
+	try:
+		previous_local_path = admit_local_cache_record(file, local_path)
+	except Exception:
+		frappe.log_error()
+		raise
+	previous_path_still_shared = previous_local_path and is_local_path_shared(
+		get_connection(), previous_local_path
+	)
+	if previous_local_path and os.path.exists(previous_local_path) and not previous_path_still_shared:
+		os.remove(previous_local_path)
+	enqueue_replication(file.name)
+
+
 def cache_file_locally(file: File) -> File:
 	"""Write bytes to the local cache and enqueue replication instead of uploading
 	synchronously. New files don't have a name yet at this point (before_insert
@@ -739,10 +781,7 @@ def cache_file_locally(file: File) -> File:
 	local_path = write_local_cache_bytes(file)
 
 	if file.name:
-		previous_local_path = admit_local_cache_record(file, local_path)
-		if previous_local_path and os.path.exists(previous_local_path):
-			os.remove(previous_local_path)
-		enqueue_replication(file.name)
+		frappe.db.after_commit(lambda: admit_and_enqueue_replication(file, local_path))
 	else:
 		file.flags.pending_local_cache_path = local_path
 
