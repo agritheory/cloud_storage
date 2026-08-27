@@ -16,7 +16,7 @@ from cloud_storage.cloud_storage.local_cache import (
 	get_local_cache_path,
 	write_local_cache_bytes,
 )
-from cloud_storage.cloud_storage.overrides.file import validate_config
+from cloud_storage.cloud_storage.overrides.file import admit_and_enqueue_replication, validate_config
 from cloud_storage.cloud_storage.tasks import replicate_cached_file
 from cloud_storage.migration import migrate_files
 
@@ -117,6 +117,49 @@ def test_admission_failure_after_commit_logs_error(mocked_s3_client):
 
 	after = frappe.db.count("Error Log")
 	assert after > before
+
+
+def test_shared_local_path_survives_content_replacement(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content_v1 = b"original content shared with another reference"
+		file = create_attached_upload(content_v1, file_name="shared_replace.bin")
+
+	cache_v1 = get_cache(file.name)
+	old_path = cache_v1.local_path
+
+	conn = get_connection()
+	conn.execute(
+		"INSERT INTO local_file_cache (file, local_path, file_size, s3_key, content_hash, accessed_at, creation) "
+		"VALUES (?, ?, ?, ?, ?, ?, ?)",
+		(
+			"shared-reference-fixture-2",
+			old_path,
+			cache_v1.file_size,
+			"some/other/key-2",
+			cache_v1.content_hash,
+			"2026-01-01 00:00:00",
+			"2026-01-01 00:00:00",
+		),
+	)
+
+	try:
+		file_doc = frappe.get_doc("File", file.name)
+		file_doc.content = b"replacement content, different hash"
+		file_doc.content_hash = "content-replacement-v2-hash"
+		new_local_path = write_local_cache_bytes(file_doc)
+
+		with patch("frappe.enqueue"):
+			admit_and_enqueue_replication(file_doc, new_local_path)
+
+		assert os.path.exists(old_path)
+		assert get_cache("shared-reference-fixture-2")
+	finally:
+		conn.execute("DELETE FROM local_file_cache WHERE file = ?", ("shared-reference-fixture-2",))
+		if os.path.exists(old_path):
+			os.remove(old_path)
 
 
 def test_cache_disabled_preserves_current_behavior(mocked_s3_client):

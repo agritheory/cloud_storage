@@ -272,14 +272,17 @@ def is_emergency_ceiling_unrecoverable(incoming_bytes: int = 0) -> bool:
 	return get_unevictable_bytes_total() + incoming_bytes > get_emergency_cache_size_bytes()
 
 
-def is_local_path_shared(conn: sqlite3.Connection, local_path: str, exclude_id: int) -> bool:
-	"""True if another live row still points at the same content-addressed path -
-	several File docs can share one content_hash (the same bytes attached in two places)."""
-	row = conn.execute(
-		"SELECT 1 FROM local_file_cache WHERE local_path = ? AND id != ? AND evicted = 0 AND pending_delete = 0",
-		(local_path, exclude_id),
-	).fetchone()
-	return row is not None
+def is_local_path_shared(conn: sqlite3.Connection, local_path: str, exclude_id: int | None = None) -> bool:
+	"""True if a live row still points at this content-addressed path - several File docs
+	can share one content_hash (the same bytes attached in two places). `exclude_id` leaves
+	out the row being deleted itself; omit it to ask "does anything at all still need this path".
+	"""
+	query = "SELECT 1 FROM local_file_cache WHERE local_path = ? AND evicted = 0 AND pending_delete = 0"
+	params = [local_path]
+	if exclude_id is not None:
+		query += " AND id != ?"
+		params.append(exclude_id)
+	return conn.execute(query, params).fetchone() is not None
 
 
 def evict_candidates(filters: dict, target_bytes: int, current_total: int) -> int:
@@ -333,7 +336,7 @@ def admit_local_cache_record(file: File, local_path: str) -> str | None:
 				(file.name, local_path, len(file.content), file.s3_key, file.content_hash, now, now),
 			)
 	except Exception:
-		if os.path.exists(local_path):
+		if os.path.exists(local_path) and not is_local_path_shared(conn, local_path):
 			os.remove(local_path)
 		raise
 

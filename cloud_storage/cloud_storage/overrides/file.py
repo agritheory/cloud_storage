@@ -35,10 +35,12 @@ from cloud_storage.cloud_storage.local_cache import (
 	enforce_local_read_permission,
 	enqueue_replication,
 	get_cached_content,
+	get_connection,
 	get_live_cache_record,
 	is_cloud_storage_degraded,
 	is_emergency_ceiling_unrecoverable,
 	is_local_cache_enabled,
+	is_local_path_shared,
 	read_cache_bytes,
 	touch_cache_access,
 	tombstone_cache_record,
@@ -753,7 +755,10 @@ def admit_and_enqueue_replication(file: File, local_path: str) -> None:
 	except Exception:
 		frappe.log_error()
 		raise
-	if previous_local_path and os.path.exists(previous_local_path):
+	previous_path_still_shared = previous_local_path and is_local_path_shared(
+		get_connection(), previous_local_path
+	)
+	if previous_local_path and os.path.exists(previous_local_path) and not previous_path_still_shared:
 		os.remove(previous_local_path)
 	enqueue_replication(file.name)
 

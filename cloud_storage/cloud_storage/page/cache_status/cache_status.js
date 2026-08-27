@@ -108,13 +108,13 @@ function render_config(config) {
 		<div class="cache-status-section">
 			<h4>Configuration (site_config.json)</h4>
 			<dl class="cache-status-config">
-				<dt>local_cache_enabled</dt><dd>${config.local_cache_enabled}</dd>
-				<dt>max_cache_size_gb</dt><dd>${config.max_cache_size_gb}</dd>
-				<dt>emergency_cache_size_gb</dt><dd>${config.emergency_cache_size_gb}</dd>
-				<dt>cache_retention_minutes</dt><dd>${config.cache_retention_minutes}</dd>
-				<dt>warm_on_read</dt><dd>${config.warm_on_read}</dd>
-				<dt>replication_max_retries</dt><dd>${config.replication_max_retries}</dd>
-				<dt>failure_threshold</dt><dd>${config.failure_threshold}</dd>
+				<dt>local_cache_enabled</dt><dd>${frappe.utils.escape_html(config.local_cache_enabled)}</dd>
+				<dt>max_cache_size_gb</dt><dd>${frappe.utils.escape_html(config.max_cache_size_gb)}</dd>
+				<dt>emergency_cache_size_gb</dt><dd>${frappe.utils.escape_html(config.emergency_cache_size_gb)}</dd>
+				<dt>cache_retention_minutes</dt><dd>${frappe.utils.escape_html(config.cache_retention_minutes)}</dd>
+				<dt>warm_on_read</dt><dd>${frappe.utils.escape_html(config.warm_on_read)}</dd>
+				<dt>replication_max_retries</dt><dd>${frappe.utils.escape_html(config.replication_max_retries)}</dd>
+				<dt>failure_threshold</dt><dd>${frappe.utils.escape_html(config.failure_threshold)}</dd>
 			</dl>
 		</div>
 	`
