@@ -29,6 +29,25 @@ from magic import from_buffer
 from PIL import UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
 
+from cloud_storage.cloud_storage.local_cache import (
+	admit_local_cache_record,
+	delete_cache_record,
+	enforce_local_read_permission,
+	enqueue_replication,
+	get_cached_content,
+	get_connection,
+	get_live_cache_record,
+	is_cloud_storage_degraded,
+	is_emergency_ceiling_unrecoverable,
+	is_local_cache_enabled,
+	is_local_path_shared,
+	read_cache_bytes,
+	touch_cache_access,
+	tombstone_cache_record,
+	warm_local_cache,
+	write_local_cache_bytes,
+)
+
 FILE_URL = "/api/method/retrieve?key={path}"
 URL_PREFIXES = ("http://", "https://", "/api/method/retrieve")
 
@@ -196,6 +215,10 @@ class CloudStorageFile(File):
 
 				frappe.delete_doc("File", self.name, ignore_permissions=True)
 
+		if self.flags.get("pending_local_cache_path") and frappe.db.exists("File", self.name):
+			local_path = self.flags.pending_local_cache_path
+			frappe.db.after_commit(lambda: admit_and_enqueue_replication(self, local_path))
+
 	def on_trash(self) -> None:
 		"""
 		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
@@ -345,9 +368,16 @@ class CloudStorageFile(File):
 			self.validate_file_url()
 
 		if self.file_url.startswith("/api/method/retrieve"):
+			cached_content = get_cached_content(self)
+			if cached_content is not None:
+				self._content = cached_content
+				return self._content
+			if is_cloud_storage_degraded():
+				frappe.throw(_("Cloud storage is unavailable and this file is not cached locally"))
 			client = get_cloud_storage_client()
 			file_object = client.get_object(Bucket=client.bucket, Key=self.s3_key)
 			self._content = file_object.get("Body").read()
+			warm_local_cache(self, self._content)
 		elif self.file_url.startswith("http://") or self.file_url.startswith("https://"):
 			self._content = urlopen(self.file_url).read()
 		else:
@@ -415,12 +445,15 @@ class CloudStorageFile(File):
 		ext = self.file_name.split(".")[-1].lower()
 
 		if self.file_url.startswith("/api/method/retrieve"):
-			client = get_cloud_storage_client()
-			ppt_s3_key = self.s3_key
+			file_bytes = get_cached_content(self)
+			if file_bytes is None:
+				if is_cloud_storage_degraded():
+					frappe.throw(_("Cloud storage is unavailable and this file is not cached locally"))
+				client = get_cloud_storage_client()
+				file_bytes = client.get_object(Bucket=client.bucket, Key=self.s3_key)["Body"].read()
+				warm_local_cache(self, file_bytes)
 
 			with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as temp_file:
-				file_bytes = client.get_object(Bucket=client.bucket, Key=ppt_s3_key)["Body"].read()
-
 				temp_file.write(file_bytes)
 				temp_file.flush()
 
@@ -552,6 +585,12 @@ def validate_config() -> None:
 		frappe.throw(
 			msg=_("Please setup bucket in your site configuration file"),
 			title=_("Cloud storage bucket not configured"),
+		)
+
+	if config.get("local_cache_enabled") and config.get("use_local"):
+		frappe.throw(
+			msg=_("local_cache_enabled and use_local are mutually exclusive in cloud storage settings"),
+			title=_("Conflicting cloud storage settings"),
 		)
 
 
@@ -695,6 +734,7 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 			}
 		)
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
+		file_doc.flags.bypass_local_cache = file.flags.bypass_local_cache
 		file = file_doc
 
 	if remove_spaces_in_file_name:
@@ -702,7 +742,50 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 	file.file_name = strip_special_chars(file.file_name)
 	file.flags.cloud_storage = True
-	return upload_file(file)
+
+	if file.flags.bypass_local_cache or not is_local_cache_enabled():
+		return upload_file(file)
+
+	return cache_file_locally(file)
+
+
+def admit_and_enqueue_replication(file: File, local_path: str) -> None:
+	try:
+		previous_local_path = admit_local_cache_record(file, local_path)
+	except Exception:
+		frappe.log_error()
+		raise
+	previous_path_still_shared = previous_local_path and is_local_path_shared(
+		get_connection(), previous_local_path
+	)
+	if previous_local_path and os.path.exists(previous_local_path) and not previous_path_still_shared:
+		os.remove(previous_local_path)
+	enqueue_replication(file.name)
+
+
+def cache_file_locally(file: File) -> File:
+	"""Write bytes to the local cache and enqueue replication instead of uploading
+	synchronously. New files don't have a name yet at this point (before_insert
+	runs before autoname), so cache-row admission is deferred to after_insert()."""
+	if is_emergency_ceiling_unrecoverable(len(file.content)):
+		frappe.throw(_("Local cache emergency ceiling reached and cannot be recovered by eviction."))
+
+	validate_config()
+	folder = frappe.conf.cloud_storage_settings.get("folder")
+	path = get_file_path(file, folder)
+	file.db_set("file_url", FILE_URL.format(path=path))
+	file.db_set("s3_key", path)
+	if not file.is_new() and file.content_hash:
+		file.db_set("content_hash", file.content_hash)
+
+	local_path = write_local_cache_bytes(file)
+
+	if file.name:
+		frappe.db.after_commit(lambda: admit_and_enqueue_replication(file, local_path))
+	else:
+		file.flags.pending_local_cache_path = local_path
+
+	return file
 
 
 @frappe.whitelist()
@@ -716,6 +799,10 @@ def delete_file(file: File, **kwargs) -> File:
 	if file.is_folder:
 		return file
 
+	if is_local_cache_enabled() and is_cloud_storage_degraded():
+		tombstone_cache_record(file)
+		return file
+
 	if file.file_url and "?key=" in file.file_url:
 		key = file.file_url.split("?key=")[1]
 		if key:
@@ -725,8 +812,13 @@ def delete_file(file: File, **kwargs) -> File:
 			except ClientError:
 				frappe.throw(_("Access denied: Could not delete file"))
 			except Exception as e:
+				if is_local_cache_enabled():
+					tombstone_cache_record(file)
+					return file
 				print(f"EXCEPTION: {e}")
 				frappe.log_error(str(e), "Cloud Storage Error: Could not delete file")
+
+	delete_cache_record(file.name)
 
 	return file
 
@@ -773,15 +865,50 @@ def validate_file_content(*args, **kwargs):
 	}
 
 
+def serve_cached_response(key: str) -> bool:
+	"""Serve `key` from the local cache into frappe.local.response. True on a hit."""
+	if not is_local_cache_enabled():
+		return False
+	cache = get_live_cache_record({"s3_key": key})
+	if not cache:
+		return False
+	content = read_cache_bytes(cache)
+	if content is None:
+		return False
+
+	file_doc = frappe.get_doc("File", cache.file) if cache.file else None
+	if file_doc:
+		enforce_local_read_permission(file_doc)
+	touch_cache_access(cache.name)
+
+	frappe.local.response["type"] = "download"
+	frappe.local.response["filecontent"] = content
+	frappe.local.response["filename"] = file_doc.file_name if file_doc else key.rsplit("/", 1)[-1]
+	frappe.local.response["display_content_as"] = "inline"
+	frappe.local.response["content_type"] = from_buffer(content, mime=True)
+	return True
+
+
 @frappe.whitelist(allow_guest=True)
 def retrieve(key: str) -> None:
-	if key:
-		client = get_cloud_storage_client()
-		signed_url = client.get_presigned_url(key)
-		frappe.local.response["type"] = "redirect"
-		frappe.local.response["location"] = signed_url
+	if not key:
+		frappe.local.response["body"] = "Key not found"
+		return
 
-	frappe.local.response["body"] = "Key not found"
+	if serve_cached_response(key):
+		return
+
+	if is_cloud_storage_degraded():
+		frappe.local.response["http_status_code"] = 503
+		frappe.local.response[
+			"body"
+		] = "Cloud storage is unavailable and this file is not cached locally"
+		return
+
+	client = get_cloud_storage_client()
+	signed_url = client.get_presigned_url(key)
+	frappe.local.response["type"] = "redirect"
+	frappe.local.response["location"] = signed_url
 
 
 @frappe.whitelist(allow_guest=True)

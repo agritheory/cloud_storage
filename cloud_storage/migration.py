@@ -143,6 +143,7 @@ def migrate_files(
 					file_doc.content = file_content
 					content_type, _ = mimetypes.guess_type(file_doc.file_name)
 					file_doc.content_type = content_type or "application/octet-stream"
+					file_doc.flags.bypass_local_cache = True
 
 					new_file = write_file(file_doc)
 					new_file.reload()

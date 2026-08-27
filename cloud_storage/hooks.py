@@ -117,28 +117,39 @@ override_doctype_class = {"File": "cloud_storage.cloud_storage.overrides.file.Cl
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"cloud_storage.tasks.all"
-# 	],
-# 	"daily": [
-# 		"cloud_storage.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"cloud_storage.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"cloud_storage.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"cloud_storage.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"cron": {
+		"* * * * *": [
+			"cloud_storage.cloud_storage.tasks.check_cloud_health",
+		],
+	},
+	"hourly": [
+		"cloud_storage.cloud_storage.tasks.retry_pending_replications",
+		"cloud_storage.cloud_storage.tasks.process_pending_deletes",
+		"cloud_storage.cloud_storage.tasks.evict_lru_cache",
+	],
+	"daily": [
+		"cloud_storage.cloud_storage.tasks.reconcile_local_cache",
+	],
+	# "all": [
+	# 	"cloud_storage.tasks.all"
+	# ],
+	# "weekly": [
+	# 	"cloud_storage.tasks.weekly"
+	# ],
+	# "monthly": [
+	# 	"cloud_storage.tasks.monthly"
+	# ],
+}
 
 # Testing
 # -------
 
 # before_tests = "cloud_storage.install.before_tests"
+
+after_migrate = [
+	"cloud_storage.cloud_storage.tasks.reconcile_local_cache",
+]
 
 # Overriding Methods
 # ------------------------------
