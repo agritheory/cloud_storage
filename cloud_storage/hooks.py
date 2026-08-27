@@ -202,7 +202,7 @@ delete_file_data_content = "cloud_storage.cloud_storage.overrides.file.delete_fi
 # --------------------------------
 commands = ["cloud_storage.commands"]
 
-# WebDAV (spike)
+# WebDAV file access
 # --------------------------------
 page_renderer = ["cloud_storage.cloud_storage.webdav.renderer.WebdavRenderer"]
 before_request = ["cloud_storage.cloud_storage.webdav.renderer.handle_webdav_methods"]

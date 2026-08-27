@@ -79,7 +79,7 @@ class WebdavRenderer:
 		return invoke_webdav(request)
 
 
-class _NoAuthDC(BaseDomainController):
+class NoAuthDC(BaseDomainController):
 	"""WsgiDAV auth adapter; Frappe has already authenticated the request."""
 
 	def get_domain_realm(self, path_info, environ):
@@ -161,7 +161,7 @@ def get_webdav_app():
 		config = {
 			"provider_mapping": {MOUNT_PREFIX: FrappeDAVProvider()},
 			"http_authenticator": {
-				"domain_controller": _NoAuthDC,
+				"domain_controller": NoAuthDC,
 				"accept_basic": True,
 				"accept_digest": False,
 				"default_to_digest": False,

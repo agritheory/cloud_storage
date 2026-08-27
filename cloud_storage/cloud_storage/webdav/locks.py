@@ -12,7 +12,7 @@ from wsgidav.lock_man.lock_storage import LockStorageDict
 NAMESPACE = "webdav:lockstorage"
 
 
-class _RedisDict:
+class RedisDict:
 	"""Minimal dict facade over a Frappe Redis hash, sufficient for LockStorageDict."""
 
 	def __init__(self, namespace: str) -> None:
@@ -67,7 +67,7 @@ class RedisLockStorage(LockStorageDict):
 
 	def open(self) -> None:
 		assert self._dict is None  # type: ignore[attr-defined,has-type]
-		self._dict = _RedisDict(NAMESPACE)  # type: ignore[attr-defined]
+		self._dict = RedisDict(NAMESPACE)  # type: ignore[attr-defined]
 
 	def close(self) -> None:
 		# don't wipe Redis — other workers may still be using it

@@ -22,16 +22,16 @@ from cloud_storage.cloud_storage.overrides.file import FILE_URL, get_cloud_stora
 from cloud_storage.cloud_storage.webdav import memory as os_file_store
 from cloud_storage.cloud_storage.webdav import paths
 from cloud_storage.cloud_storage.webdav.buffers import (
-	MemoryBuffer as _MemoryBuffer,
-	OverwriteBuffer as _OverwriteBuffer,
-	WriteBuffer as _WriteBuffer,
+	MemoryBuffer,
+	OverwriteBuffer,
+	WriteBuffer,
 )
 from cloud_storage.cloud_storage.webdav.permissions import (
-	can as _can,
-	can_create as _can_create,
-	can_read_folder as _can_read_folder,
-	can_write_folder as _can_write_folder,
-	folder_display_name as _folder_display_name,
+	can,
+	can_create,
+	can_read_folder,
+	can_write_folder,
+	folder_display_name,
 	folder_parent as frappe_folder_parent,
 )
 
@@ -147,7 +147,7 @@ class FrappeCollection(DAVCollection):
 			parent = frappe_folder_parent(self.frappe_folder)
 			if not parent:
 				return None
-			name = _folder_display_name(self.frappe_folder)
+			name = folder_display_name(self.frappe_folder)
 			self._meta = frappe.db.get_value(
 				"File",
 				{"file_name": name, "folder": parent, "is_folder": 1},
@@ -165,7 +165,7 @@ class FrappeCollection(DAVCollection):
 		return meta.modified.timestamp() if meta else None
 
 	def get_display_name(self) -> str:
-		return _folder_display_name(self.frappe_folder)
+		return folder_display_name(self.frappe_folder)
 
 	def get_etag(self) -> None:
 		return None
@@ -184,10 +184,10 @@ class FrappeCollection(DAVCollection):
 		child_path = self.path.rstrip("/") + "/" + name
 
 		if is_os_metadata(name):
-			if not _can_read_folder(self.frappe_folder):
+			if not can_read_folder(self.frappe_folder):
 				return None
 			if os_file_store.contains(child_path):
-				return _MemoryFile(child_path, self.environ, name, self.frappe_folder)
+				return MemoryFile(child_path, self.environ, name, self.frappe_folder)
 			return None
 
 		folder_match = frappe.get_list(
@@ -213,18 +213,18 @@ class FrappeCollection(DAVCollection):
 
 	def create_empty_resource(self, name: str):
 		child_path = self.path.rstrip("/") + "/" + name
-		if not _can_create():
+		if not can_create():
 			raise DAVError(HTTP_FORBIDDEN)
-		if not _can_write_folder(self.frappe_folder):
+		if not can_write_folder(self.frappe_folder):
 			raise DAVError(HTTP_FORBIDDEN)
 		if is_os_metadata(name):
-			return _MemoryFile(child_path, self.environ, name, self.frappe_folder)
+			return MemoryFile(child_path, self.environ, name, self.frappe_folder)
 		return FrappeNewFile(child_path, self.environ, self.frappe_folder, name)
 
 	def create_collection(self, name: str):
-		if not _can_create():
+		if not can_create():
 			raise DAVError(HTTP_FORBIDDEN)
-		if not _can_write_folder(self.frappe_folder):
+		if not can_write_folder(self.frappe_folder):
 			raise DAVError(HTTP_FORBIDDEN)
 		if frappe.db.exists("File", {"folder": self.frappe_folder, "file_name": name}):
 			raise DAVError(HTTP_METHOD_NOT_ALLOWED, "destination already exists")
@@ -244,7 +244,7 @@ class FrappeCollection(DAVCollection):
 
 	def delete(self):
 		parent = frappe_folder_parent(self.frappe_folder)
-		display_name = _folder_display_name(self.frappe_folder)
+		display_name = folder_display_name(self.frappe_folder)
 		folder_name = frappe.db.get_value(
 			"File",
 			{"folder": parent, "file_name": display_name, "is_folder": 1},
@@ -252,7 +252,7 @@ class FrappeCollection(DAVCollection):
 		)
 		if not folder_name:
 			raise DAVError(HTTP_NOT_FOUND)
-		if not _can(folder_name, "delete"):
+		if not can(folder_name, "delete"):
 			raise DAVError(HTTP_FORBIDDEN)
 		try:
 			frappe.delete_doc("File", folder_name)
@@ -273,16 +273,16 @@ class FrappeCollection(DAVCollection):
 		if self.frappe_folder in SYSTEM_FOLDERS:
 			raise DAVError(HTTP_FORBIDDEN, "cannot move system folders")
 		parent = frappe_folder_parent(self.frappe_folder)
-		display = _folder_display_name(self.frappe_folder)
+		display = folder_display_name(self.frappe_folder)
 		folder_name = frappe.db.get_value(
 			"File",
 			{"folder": parent, "file_name": display, "is_folder": 1},
 			"name",
 		)
-		if not folder_name or not _can(folder_name, "write"):
+		if not folder_name or not can(folder_name, "write"):
 			raise DAVError(HTTP_FORBIDDEN)
 		new_parent, _ = parse_dest(dest_path)
-		if not _can_write_folder(new_parent):
+		if not can_write_folder(new_parent):
 			raise DAVError(HTTP_FORBIDDEN)
 		return self.move_recursive(dest_path)
 
@@ -298,7 +298,7 @@ class FrappeCollection(DAVCollection):
 		logger.debug(f"folder move src={self.frappe_folder!r} → {new_frappe_folder!r}")
 
 		parent = frappe_folder_parent(self.frappe_folder)
-		display = _folder_display_name(self.frappe_folder)
+		display = folder_display_name(self.frappe_folder)
 		folder_name = frappe.db.get_value(
 			"File",
 			{"folder": parent, "file_name": display, "is_folder": 1},
@@ -306,9 +306,9 @@ class FrappeCollection(DAVCollection):
 		)
 		if not folder_name:
 			raise DAVError(HTTP_NOT_FOUND)
-		if not _can(folder_name, "write"):
+		if not can(folder_name, "write"):
 			raise DAVError(HTTP_FORBIDDEN)
-		if not _can_write_folder(new_parent):
+		if not can_write_folder(new_parent):
 			raise DAVError(HTTP_FORBIDDEN)
 		if frappe.db.exists(
 			"File",
@@ -384,7 +384,7 @@ FILE_FIELDS = [
 ]
 
 
-class _MemoryFile(DAVNonCollection):
+class MemoryFile(DAVNonCollection):
 	"""In-memory resource for OS metadata files (._*, .DS_Store, ...)."""
 
 	def __init__(self, path: str, environ: dict, file_name: str, frappe_folder: str) -> None:
@@ -426,20 +426,20 @@ class _MemoryFile(DAVNonCollection):
 		return io.BytesIO(self.raw_content())
 
 	def begin_write(self, content_type: str | None = None):
-		if not _can_write_folder(self.frappe_folder):
+		if not can_write_folder(self.frappe_folder):
 			raise DAVError(HTTP_FORBIDDEN)
-		return _MemoryBuffer(self.path)
+		return MemoryBuffer(self.path)
 
 	def delete(self):
-		if not _can_write_folder(self.frappe_folder):
+		if not can_write_folder(self.frappe_folder):
 			raise DAVError(HTTP_FORBIDDEN)
 		os_file_store.delete(self.path)
 
 	def handle_move(self, dest_path: str) -> bool:
-		if not _can_write_folder(self.frappe_folder):
+		if not can_write_folder(self.frappe_folder):
 			raise DAVError(HTTP_FORBIDDEN)
 		new_folder, new_name = parse_dest(dest_path)
-		if not _can_write_folder(new_folder):
+		if not can_write_folder(new_folder):
 			raise DAVError(HTTP_FORBIDDEN)
 		dav_folder = new_folder[len("Home") :]
 		new_key = f"{dav_folder}/{new_name}" if dav_folder else f"/{new_name}"
@@ -494,7 +494,7 @@ class FrappeNewFile(DAVNonCollection):
 		raise DAVError(HTTP_NOT_FOUND)
 
 	def begin_write(self, content_type: str | None = None):
-		return _WriteBuffer(self.file_name, self.frappe_folder, content_type)
+		return WriteBuffer(self.file_name, self.frappe_folder, content_type)
 
 	def delete(self):
 		raise DAVError(HTTP_FORBIDDEN)
@@ -561,12 +561,12 @@ class FrappeFile(DAVNonCollection):
 		return open(file_path, "rb")
 
 	def begin_write(self, content_type: str | None = None):
-		if not _can(self.file_doc.name, "write"):
+		if not can(self.file_doc.name, "write"):
 			raise DAVError(HTTP_FORBIDDEN)
-		return _OverwriteBuffer(self.file_doc.name)
+		return OverwriteBuffer(self.file_doc.name)
 
 	def delete(self):
-		if not _can(self.file_doc.name, "delete"):
+		if not can(self.file_doc.name, "delete"):
 			raise DAVError(HTTP_FORBIDDEN)
 		try:
 			frappe.delete_doc("File", self.file_doc.name)
@@ -582,10 +582,10 @@ class FrappeFile(DAVNonCollection):
 	def handle_move(self, dest_path: str) -> bool | list:
 		# Handle MOVE natively so wsgidav never reaches its fallback path that
 		# deletes an existing destination before calling move_recursive().
-		if not _can(self.file_doc.name, "write"):
+		if not can(self.file_doc.name, "write"):
 			raise DAVError(HTTP_FORBIDDEN)
 		new_folder, _ = parse_dest(dest_path)
-		if not _can_write_folder(new_folder):
+		if not can_write_folder(new_folder):
 			raise DAVError(HTTP_FORBIDDEN)
 		return self.move_recursive(dest_path)
 
@@ -593,10 +593,10 @@ class FrappeFile(DAVNonCollection):
 		raise DAVError(HTTP_FORBIDDEN)
 
 	def move_recursive(self, dest_path: str):
-		if not _can(self.file_doc.name, "write"):
+		if not can(self.file_doc.name, "write"):
 			raise DAVError(HTTP_FORBIDDEN)
 		new_folder, new_name = parse_dest(dest_path)
-		if not _can_write_folder(new_folder):
+		if not can_write_folder(new_folder):
 			raise DAVError(HTTP_FORBIDDEN)
 		logger.debug(
 			f"file move doc={self.file_doc.name} {self.file_doc.file_name!r} → " f"{new_folder}/{new_name}"
@@ -617,13 +617,13 @@ class FrappeFile(DAVNonCollection):
 		)
 
 		if existing:
-			if not _can(existing.name, "write"):
+			if not can(existing.name, "write"):
 				raise DAVError(HTTP_FORBIDDEN)
 			return self.replace_existing_destination(existing.name, existing.s3_key)
 
 		displaced = self.find_displaced_atomic_save_destination(new_folder, new_name)
 		if displaced:
-			if not _can(displaced.name, "write"):
+			if not can(displaced.name, "write"):
 				raise DAVError(HTTP_FORBIDDEN)
 			return self.replace_existing_destination(
 				displaced.name,
@@ -688,7 +688,7 @@ class FrappeFile(DAVNonCollection):
 		if frappe_folder_parent(source_folder) != new_folder:
 			return None
 
-		source_folder_name = _folder_display_name(source_folder)
+		source_folder_name = folder_display_name(source_folder)
 		if not source_folder_name.startswith(f"{new_name}.sb-"):
 			return None
 
@@ -788,10 +788,10 @@ class FrappeDAVProvider(DAVProvider):
 		last = parts[-1]
 
 		if is_os_metadata(last):
-			if not _can_read_folder(frappe_folder):
+			if not can_read_folder(frappe_folder):
 				return None
 			if os_file_store.contains(path):
-				return _MemoryFile(path, environ, last, frappe_folder)
+				return MemoryFile(path, environ, last, frappe_folder)
 			return None
 
 		folder_match = frappe.get_list(
