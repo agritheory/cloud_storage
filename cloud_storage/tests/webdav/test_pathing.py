@@ -5,26 +5,19 @@ import frappe
 import pytest
 
 from cloud_storage.tests.fixtures import SHARED_VIEWER
+from cloud_storage.tests.webdav.helpers import dav_move, file_name_at, make_folder, put_file
 
 
-@pytest.fixture(autouse=True)
-def force_local_storage(local_storage):
-	pass
+pytestmark = pytest.mark.usefixtures("force_local_storage")
 
 
 def test_put_creates_local_file(dav_request, track_files):
 	frappe.set_user(SHARED_VIEWER)
 
-	resp = dav_request("PUT", "/dav/webdav_pathing_put.txt", data=b"hello from webdav")
-	assert resp.status_code in (200, 201, 204)
+	name = put_file(dav_request, track_files, "webdav_pathing_put.txt", b"hello from webdav")
+	assert name is not None
 
-	file_name = frappe.db.get_value(
-		"File", {"file_name": "webdav_pathing_put.txt", "folder": "Home"}, "name"
-	)
-	track_files(file_name)
-	assert file_name is not None
-
-	doc = frappe.get_doc("File", file_name)
+	doc = frappe.get_doc("File", name)
 	assert doc.owner == SHARED_VIEWER
 	assert doc.is_private == 1
 	assert doc.get_content() == "hello from webdav"
@@ -33,33 +26,16 @@ def test_put_creates_local_file(dav_request, track_files):
 def test_move_updates_folder_and_rejects_dot_segment_destination(dav_request, track_files):
 	frappe.set_user(SHARED_VIEWER)
 
-	mkcol_resp = dav_request("MKCOL", "/dav/WebdavMoveDest")
-	assert mkcol_resp.status_code in (200, 201)
-	folder_name = frappe.db.get_value(
-		"File", {"folder": "Home", "file_name": "WebdavMoveDest", "is_folder": 1}, "name"
-	)
-	track_files(folder_name)
+	make_folder(dav_request, track_files, "WebdavMoveDest")
+	original_name = put_file(dav_request, track_files, "webdav_pathing_move.txt", b"move me")
 
-	put_resp = dav_request("PUT", "/dav/webdav_pathing_move.txt", data=b"move me")
-	assert put_resp.status_code in (200, 201, 204)
-	original_name = frappe.db.get_value(
-		"File", {"file_name": "webdav_pathing_move.txt", "folder": "Home"}, "name"
-	)
-	track_files(original_name)
-
-	move_resp = dav_request(
-		"MOVE",
-		"/dav/webdav_pathing_move.txt",
-		headers={"Destination": "http://localhost/dav/WebdavMoveDest/webdav_pathing_move.txt"},
+	move_resp = dav_move(
+		dav_request, "/dav/webdav_pathing_move.txt", "WebdavMoveDest/webdav_pathing_move.txt"
 	)
 	assert move_resp.status_code in (201, 204)
 
 	# Renaming onto a fresh destination updates the same doc in place.
-	moved_name = frappe.db.get_value(
-		"File",
-		{"file_name": "webdav_pathing_move.txt", "folder": "Home/WebdavMoveDest"},
-		"name",
-	)
+	moved_name = file_name_at("webdav_pathing_move.txt", "Home/WebdavMoveDest")
 	assert moved_name == original_name
 	moved_doc = frappe.get_doc("File", moved_name)
 	assert moved_doc.get_content() == "move me"
@@ -67,10 +43,7 @@ def test_move_updates_folder_and_rejects_dot_segment_destination(dav_request, tr
 	stale_get = dav_request("GET", "/dav/webdav_pathing_move.txt")
 	assert stale_get.status_code == 404
 
-	put_resp2 = dav_request("PUT", "/dav/webdav_pathing_move_2.txt", data=b"another")
-	assert put_resp2.status_code in (200, 201, 204)
-	leftover = frappe.db.get_value("File", {"file_name": "webdav_pathing_move_2.txt"}, "name")
-	track_files(leftover)
+	put_file(dav_request, track_files, "webdav_pathing_move_2.txt", b"another")
 
 	traversal_resp = dav_request(
 		"MOVE",
@@ -79,6 +52,7 @@ def test_move_updates_folder_and_rejects_dot_segment_destination(dav_request, tr
 	)
 	assert traversal_resp.status_code == 403
 
+	leftover = file_name_at("webdav_pathing_move_2.txt")
 	untouched = frappe.get_doc("File", leftover)
 	assert untouched.folder == "Home"
 	assert untouched.file_name == "webdav_pathing_move_2.txt"
@@ -87,12 +61,7 @@ def test_move_updates_folder_and_rejects_dot_segment_destination(dav_request, tr
 def test_move_rejects_url_encoded_dot_segment_destination(dav_request, track_files):
 	frappe.set_user(SHARED_VIEWER)
 
-	put_resp = dav_request("PUT", "/dav/webdav_pathing_encoded.txt", data=b"encoded traversal")
-	assert put_resp.status_code in (200, 201, 204)
-	name = frappe.db.get_value(
-		"File", {"file_name": "webdav_pathing_encoded.txt", "folder": "Home"}, "name"
-	)
-	track_files(name)
+	name = put_file(dav_request, track_files, "webdav_pathing_encoded.txt", b"encoded traversal")
 
 	resp = dav_request(
 		"MOVE",
@@ -129,12 +98,9 @@ def test_move_rejects_encoded_separator_within_a_single_segment(
 	# unquoted, so ".." can hide there even past a plain "." / ".." guard.
 	frappe.set_user(SHARED_VIEWER)
 
-	put_resp = dav_request("PUT", "/dav/webdav_pathing_embedded_sep.txt", data=b"embedded separator")
-	assert put_resp.status_code in (200, 201, 204)
-	name = frappe.db.get_value(
-		"File", {"file_name": "webdav_pathing_embedded_sep.txt", "folder": "Home"}, "name"
+	name = put_file(
+		dav_request, track_files, "webdav_pathing_embedded_sep.txt", b"embedded separator"
 	)
-	track_files(name)
 
 	resp = dav_request(
 		"MOVE",

@@ -6,6 +6,7 @@ import pytest
 from botocore.exceptions import ClientError
 
 from cloud_storage.tests.fixtures import SHARED_VIEWER
+from cloud_storage.tests.webdav.helpers import dav_move, file_name_at, put_file
 
 
 def custom_path_generator(file, folder):
@@ -15,13 +16,7 @@ def custom_path_generator(file, folder):
 def test_put_creates_s3_object(dav_request, s3_backend, track_files):
 	frappe.set_user(SHARED_VIEWER)
 
-	resp = dav_request("PUT", "/dav/webdav_s3_create.txt", data=b"s3 content")
-	assert resp.status_code in (200, 201, 204)
-
-	name = frappe.db.get_value(
-		"File", {"file_name": "webdav_s3_create.txt", "folder": "Home"}, "name"
-	)
-	track_files(name)
+	name = put_file(dav_request, track_files, "webdav_s3_create.txt", b"s3 content")
 	doc = frappe.get_doc("File", name)
 	expected_key = f"{s3_backend.folder}/webdav/{doc.name}/webdav_s3_create.txt"
 	assert doc.s3_key == expected_key
@@ -37,16 +32,12 @@ def test_put_uses_custom_path_generator_hook(dav_request, s3_backend, track_file
 
 	def fake_get_hooks(hook_name=None, *args, **kwargs):
 		if hook_name == "cloud_storage_webdav_path_generator":
-			return ["cloud_storage.tests.test_webdav_s3.custom_path_generator"]
+			return ["cloud_storage.tests.webdav.test_s3.custom_path_generator"]
 		return real_get_hooks(hook_name, *args, **kwargs)
 
 	monkeypatch.setattr(frappe, "get_hooks", fake_get_hooks)
 
-	resp = dav_request("PUT", "/dav/webdav_s3_hook.txt", data=b"hook override")
-	assert resp.status_code in (200, 201, 204)
-
-	name = frappe.db.get_value("File", {"file_name": "webdav_s3_hook.txt", "folder": "Home"}, "name")
-	track_files(name)
+	name = put_file(dav_request, track_files, "webdav_s3_hook.txt", b"hook override")
 	doc = frappe.get_doc("File", name)
 	assert doc.s3_key == f"custom/{doc.name}/webdav_s3_hook.txt"
 
@@ -57,12 +48,7 @@ def test_put_uses_custom_path_generator_hook(dav_request, s3_backend, track_file
 def test_put_overwrite_s3_object(dav_request, s3_backend, track_files):
 	frappe.set_user(SHARED_VIEWER)
 
-	put1 = dav_request("PUT", "/dav/webdav_s3_overwrite.txt", data=b"first")
-	assert put1.status_code in (200, 201, 204)
-	name = frappe.db.get_value(
-		"File", {"file_name": "webdav_s3_overwrite.txt", "folder": "Home"}, "name"
-	)
-	track_files(name)
+	name = put_file(dav_request, track_files, "webdav_s3_overwrite.txt", b"first")
 	doc1 = frappe.get_doc("File", name)
 	key = doc1.s3_key
 	hash1 = doc1.content_hash
@@ -70,9 +56,7 @@ def test_put_overwrite_s3_object(dav_request, s3_backend, track_files):
 	put2 = dav_request("PUT", "/dav/webdav_s3_overwrite.txt", data=b"second, longer content")
 	assert put2.status_code in (200, 201, 204)
 
-	same_name = frappe.db.get_value(
-		"File", {"file_name": "webdav_s3_overwrite.txt", "folder": "Home"}, "name"
-	)
+	same_name = file_name_at("webdav_s3_overwrite.txt")
 	assert same_name == name
 	assert frappe.db.count("File", {"file_name": "webdav_s3_overwrite.txt", "folder": "Home"}) == 1
 
@@ -87,24 +71,13 @@ def test_put_overwrite_s3_object(dav_request, s3_backend, track_files):
 def test_move_renames_s3_key_and_removes_old_object(dav_request, s3_backend, track_files):
 	frappe.set_user(SHARED_VIEWER)
 
-	put_resp = dav_request("PUT", "/dav/webdav_s3_rename_src.txt", data=b"rename me")
-	assert put_resp.status_code in (200, 201, 204)
-	name = frappe.db.get_value(
-		"File", {"file_name": "webdav_s3_rename_src.txt", "folder": "Home"}, "name"
-	)
-	track_files(name)
+	name = put_file(dav_request, track_files, "webdav_s3_rename_src.txt", b"rename me")
 	old_key = frappe.get_doc("File", name).s3_key
 
-	move_resp = dav_request(
-		"MOVE",
-		"/dav/webdav_s3_rename_src.txt",
-		headers={"Destination": "http://localhost/dav/webdav_s3_rename_dest.txt"},
-	)
+	move_resp = dav_move(dav_request, "/dav/webdav_s3_rename_src.txt", "webdav_s3_rename_dest.txt")
 	assert move_resp.status_code in (201, 204)
 
-	same_name = frappe.db.get_value(
-		"File", {"file_name": "webdav_s3_rename_dest.txt", "folder": "Home"}, "name"
-	)
+	same_name = file_name_at("webdav_s3_rename_dest.txt")
 	assert same_name == name
 	new_doc = frappe.get_doc("File", name)
 	assert new_doc.s3_key != old_key
@@ -121,26 +94,13 @@ def test_move_onto_existing_destination_s3_preserves_identity_and_cleans_up(
 ):
 	frappe.set_user(SHARED_VIEWER)
 
-	dav_request("PUT", "/dav/webdav_s3_move_src.txt", data=b"source content")
-	src_name = frappe.db.get_value(
-		"File", {"file_name": "webdav_s3_move_src.txt", "folder": "Home"}, "name"
-	)
-	track_files(src_name)
+	src_name = put_file(dav_request, track_files, "webdav_s3_move_src.txt", b"source content")
 	src_key = frappe.get_doc("File", src_name).s3_key
 
-	put_dest = dav_request("PUT", "/dav/webdav_s3_move_dest.txt", data=b"dest content")
-	assert put_dest.status_code in (200, 201, 204)
-	dest_name = frappe.db.get_value(
-		"File", {"file_name": "webdav_s3_move_dest.txt", "folder": "Home"}, "name"
-	)
-	track_files(dest_name)
+	dest_name = put_file(dav_request, track_files, "webdav_s3_move_dest.txt", b"dest content")
 	dest_key = frappe.get_doc("File", dest_name).s3_key
 
-	move_resp = dav_request(
-		"MOVE",
-		"/dav/webdav_s3_move_src.txt",
-		headers={"Destination": "http://localhost/dav/webdav_s3_move_dest.txt"},
-	)
+	move_resp = dav_move(dav_request, "/dav/webdav_s3_move_src.txt", "webdav_s3_move_dest.txt")
 	assert move_resp.status_code in (201, 204)
 
 	assert not frappe.db.exists("File", src_name)
@@ -164,18 +124,12 @@ def test_move_onto_existing_destination_s3_rolls_back_on_copy_failure(
 ):
 	frappe.set_user(SHARED_VIEWER)
 
-	dav_request("PUT", "/dav/webdav_s3_rollback_src.txt", data=b"source content")
-	src_name = frappe.db.get_value(
-		"File", {"file_name": "webdav_s3_rollback_src.txt", "folder": "Home"}, "name"
-	)
-	track_files(src_name)
+	src_name = put_file(dav_request, track_files, "webdav_s3_rollback_src.txt", b"source content")
 	src_key = frappe.get_doc("File", src_name).s3_key
 
-	dav_request("PUT", "/dav/webdav_s3_rollback_dest.txt", data=b"original dest content")
-	dest_name = frappe.db.get_value(
-		"File", {"file_name": "webdav_s3_rollback_dest.txt", "folder": "Home"}, "name"
+	dest_name = put_file(
+		dav_request, track_files, "webdav_s3_rollback_dest.txt", b"original dest content"
 	)
-	track_files(dest_name)
 	dest_key = frappe.get_doc("File", dest_name).s3_key
 
 	real_copy_object = s3_backend._client.copy_object
@@ -199,10 +153,8 @@ def test_move_onto_existing_destination_s3_rolls_back_on_copy_failure(
 
 	s3_backend.copy_object = flaky_copy_object
 
-	move_resp = dav_request(
-		"MOVE",
-		"/dav/webdav_s3_rollback_src.txt",
-		headers={"Destination": "http://localhost/dav/webdav_s3_rollback_dest.txt"},
+	move_resp = dav_move(
+		dav_request, "/dav/webdav_s3_rollback_src.txt", "webdav_s3_rollback_dest.txt"
 	)
 	assert move_resp.status_code == 500
 

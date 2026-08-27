@@ -6,24 +6,15 @@ import pytest
 from frappe.core.api.file import create_new_folder
 
 from cloud_storage.tests.fixtures import OTHER_USER, SHARED_VIEWER
+from cloud_storage.tests.webdav.helpers import dav_move, file_name_at, make_file, put_file
 
 
-@pytest.fixture(autouse=True)
-def force_local_storage(local_storage):
-	pass
+pytestmark = pytest.mark.usefixtures("force_local_storage")
 
 
 def test_propfind_hides_unshared_private_file(dav_request, track_files):
 	frappe.set_user("Administrator")
-	owned = frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": "webdav_perm_unshared.txt",
-			"content": "not shared",
-			"is_private": 1,
-			"folder": "Home",
-		}
-	).insert()
+	owned = make_file("webdav_perm_unshared.txt", "not shared")
 	track_files(owned.name)
 
 	frappe.set_user(OTHER_USER)
@@ -34,15 +25,7 @@ def test_propfind_hides_unshared_private_file(dav_request, track_files):
 
 def test_propfind_shows_docshare_file(dav_request, track_files):
 	frappe.set_user("Administrator")
-	owned = frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": "webdav_perm_shared.txt",
-			"content": "shared via docshare",
-			"is_private": 1,
-			"folder": "Home",
-		}
-	).insert()
+	owned = make_file("webdav_perm_shared.txt", "shared via docshare")
 	track_files(owned.name)
 	frappe.share.add("File", owned.name, user=SHARED_VIEWER, read=1)
 
@@ -54,15 +37,7 @@ def test_propfind_shows_docshare_file(dav_request, track_files):
 
 def test_get_unshared_private_file_returns_404(dav_request, track_files):
 	frappe.set_user("Administrator")
-	owned = frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": "webdav_perm_get_unshared.txt",
-			"content": "cannot read me",
-			"is_private": 1,
-			"folder": "Home",
-		}
-	).insert()
+	owned = make_file("webdav_perm_get_unshared.txt", "cannot read me")
 	track_files(owned.name)
 
 	frappe.set_user(OTHER_USER)
@@ -72,15 +47,7 @@ def test_get_unshared_private_file_returns_404(dav_request, track_files):
 
 def test_get_docshare_file_returns_content(dav_request, track_files):
 	frappe.set_user("Administrator")
-	owned = frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": "webdav_perm_get_shared.txt",
-			"content": "read me please",
-			"is_private": 1,
-			"folder": "Home",
-		}
-	).insert()
+	owned = make_file("webdav_perm_get_shared.txt", "read me please")
 	track_files(owned.name)
 	frappe.share.add("File", owned.name, user=SHARED_VIEWER, read=1)
 
@@ -99,10 +66,7 @@ def test_put_denied_in_folder_without_write_permission(dav_request, track_files)
 	resp = dav_request("PUT", "/dav/WebdavPermNoWrite/blocked.txt", data=b"nope")
 	assert resp.status_code == 403
 
-	leftover = frappe.db.get_value(
-		"File", {"folder": folder.name, "file_name": "blocked.txt"}, "name"
-	)
-	assert leftover is None
+	assert file_name_at("blocked.txt", folder.name) is None
 
 
 def test_home_root_is_always_writable_regardless_of_ownership(dav_request, track_files):
@@ -112,24 +76,14 @@ def test_home_root_is_always_writable_regardless_of_ownership(dav_request, track
 	resp = dav_request("PUT", "/dav/webdav_perm_home_write.txt", data=b"anyone can write Home")
 	assert resp.status_code in (200, 201, 204)
 
-	name = frappe.db.get_value(
-		"File", {"folder": "Home", "file_name": "webdav_perm_home_write.txt"}, "name"
-	)
+	name = file_name_at("webdav_perm_home_write.txt")
 	track_files(name)
 	assert name is not None
 
 
 def test_delete_allowed_for_owner(dav_request, track_files):
 	frappe.set_user("Administrator")
-	owned = frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": "webdav_perm_delete_owner.txt",
-			"content": "delete me",
-			"is_private": 1,
-			"folder": "Home",
-		}
-	).insert()
+	owned = make_file("webdav_perm_delete_owner.txt", "delete me")
 	track_files(owned.name)
 
 	resp = dav_request("DELETE", "/dav/webdav_perm_delete_owner.txt")
@@ -139,15 +93,7 @@ def test_delete_allowed_for_owner(dav_request, track_files):
 
 def test_delete_denied_with_read_only_share(dav_request, track_files):
 	frappe.set_user("Administrator")
-	owned = frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": "webdav_perm_delete_denied.txt",
-			"content": "read only for you",
-			"is_private": 1,
-			"folder": "Home",
-		}
-	).insert()
+	owned = make_file("webdav_perm_delete_denied.txt", "read only for you")
 	track_files(owned.name)
 	frappe.share.add("File", owned.name, user=SHARED_VIEWER, read=1)
 
@@ -159,23 +105,15 @@ def test_delete_denied_with_read_only_share(dav_request, track_files):
 
 def test_move_denied_without_write_permission_on_source(dav_request, track_files):
 	frappe.set_user("Administrator")
-	owned = frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": "webdav_perm_move_src_denied.txt",
-			"content": "read only for you",
-			"is_private": 1,
-			"folder": "Home",
-		}
-	).insert()
+	owned = make_file("webdav_perm_move_src_denied.txt", "read only for you")
 	track_files(owned.name)
 	frappe.share.add("File", owned.name, user=SHARED_VIEWER, read=1)
 
 	frappe.set_user(SHARED_VIEWER)
-	resp = dav_request(
-		"MOVE",
+	resp = dav_move(
+		dav_request,
 		"/dav/webdav_perm_move_src_denied.txt",
-		headers={"Destination": "http://localhost/dav/webdav_perm_move_src_denied_2.txt"},
+		"webdav_perm_move_src_denied_2.txt",
 	)
 	assert resp.status_code == 403
 
@@ -191,19 +129,12 @@ def test_move_denied_without_write_permission_on_destination_folder(dav_request,
 	track_files(locked_folder.name)
 
 	frappe.set_user(OTHER_USER)
-	put_resp = dav_request("PUT", "/dav/webdav_perm_move_dest_denied.txt", data=b"mine")
-	assert put_resp.status_code in (200, 201, 204)
-	owned_name = frappe.db.get_value(
-		"File", {"folder": "Home", "file_name": "webdav_perm_move_dest_denied.txt"}, "name"
-	)
-	track_files(owned_name)
+	owned_name = put_file(dav_request, track_files, "webdav_perm_move_dest_denied.txt", b"mine")
 
-	move_resp = dav_request(
-		"MOVE",
+	move_resp = dav_move(
+		dav_request,
 		"/dav/webdav_perm_move_dest_denied.txt",
-		headers={
-			"Destination": "http://localhost/dav/WebdavPermMoveDestDenied/webdav_perm_move_dest_denied.txt"
-		},
+		"WebdavPermMoveDestDenied/webdav_perm_move_dest_denied.txt",
 	)
 	assert move_resp.status_code == 403
 
@@ -221,12 +152,7 @@ def test_mkcol_denied_without_write_permission(dav_request, track_files):
 	resp = dav_request("MKCOL", "/dav/WebdavPermMkcolDenied/BlockedSubfolder")
 	assert resp.status_code == 403
 
-	leftover = frappe.db.get_value(
-		"File",
-		{"folder": parent.name, "file_name": "BlockedSubfolder", "is_folder": 1},
-		"name",
-	)
-	assert leftover is None
+	assert file_name_at("BlockedSubfolder", parent.name, is_folder=True) is None
 
 
 def test_propfind_on_shared_subfolder_lists_children(dav_request, track_files):
@@ -235,15 +161,7 @@ def test_propfind_on_shared_subfolder_lists_children(dav_request, track_files):
 	track_files(folder.name)
 	frappe.share.add("File", folder.name, user=SHARED_VIEWER, read=1)
 
-	child = frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": "webdav_perm_subfolder_child.txt",
-			"content": "in shared subfolder",
-			"is_private": 1,
-			"folder": folder.name,
-		}
-	).insert()
+	child = make_file("webdav_perm_subfolder_child.txt", "in shared subfolder", folder=folder.name)
 	track_files(child.name)
 
 	frappe.set_user(SHARED_VIEWER)
@@ -355,11 +273,7 @@ def test_os_metadata_move_denied_without_write_permission_on_source(dav_request,
 	assert put_resp.status_code in (200, 201, 204)
 
 	frappe.set_user(SHARED_VIEWER)
-	resp = dav_request(
-		"MOVE",
-		"/dav/WebdavOSMetaMoveSrcDenied/.DS_Store",
-		headers={"Destination": "http://localhost/dav/.DS_Store"},
-	)
+	resp = dav_move(dav_request, "/dav/WebdavOSMetaMoveSrcDenied/.DS_Store", ".DS_Store")
 	assert resp.status_code == 403
 
 	frappe.set_user("Administrator")
@@ -384,11 +298,7 @@ def test_os_metadata_move_denied_without_write_permission_on_destination(dav_req
 	put_resp = dav_request("PUT", "/dav/.DS_Store", data=b"mine")
 	assert put_resp.status_code in (200, 201, 204)
 
-	resp = dav_request(
-		"MOVE",
-		"/dav/.DS_Store",
-		headers={"Destination": "http://localhost/dav/WebdavOSMetaMoveDestDenied/.DS_Store"},
-	)
+	resp = dav_move(dav_request, "/dav/.DS_Store", "WebdavOSMetaMoveDestDenied/.DS_Store")
 	assert resp.status_code == 403
 
 	still_there = dav_request("GET", "/dav/.DS_Store")
@@ -406,19 +316,13 @@ def test_os_metadata_move_allowed_moves_content_and_removes_source(dav_request, 
 	frappe.set_user(SHARED_VIEWER)
 	mkcol_resp = dav_request("MKCOL", "/dav/WebdavOSMetaMoveAllowed")
 	assert mkcol_resp.status_code in (200, 201)
-	folder_name = frappe.db.get_value(
-		"File", {"folder": "Home", "file_name": "WebdavOSMetaMoveAllowed", "is_folder": 1}, "name"
-	)
+	folder_name = file_name_at("WebdavOSMetaMoveAllowed", is_folder=True)
 	track_files(folder_name)
 
 	put_resp = dav_request("PUT", "/dav/.DS_Store", data=b"relocate me")
 	assert put_resp.status_code in (200, 201, 204)
 
-	move_resp = dav_request(
-		"MOVE",
-		"/dav/.DS_Store",
-		headers={"Destination": "http://localhost/dav/WebdavOSMetaMoveAllowed/.DS_Store"},
-	)
+	move_resp = dav_move(dav_request, "/dav/.DS_Store", "WebdavOSMetaMoveAllowed/.DS_Store")
 	assert move_resp.status_code in (201, 204)
 
 	at_destination = dav_request("GET", "/dav/WebdavOSMetaMoveAllowed/.DS_Store")
