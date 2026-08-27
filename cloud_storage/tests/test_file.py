@@ -292,7 +292,6 @@ def test_associate_files_no_duplicate_association():
 	doc.associate_files("Module Def", "Cloud Storage")
 	doc.associate_files("Module Def", "Cloud Storage")
 
-
 	file_b = frappe.get_doc("File", "test-assoc-guard-b")
 	matching = [
 		a
