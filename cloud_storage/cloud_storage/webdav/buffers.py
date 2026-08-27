@@ -61,15 +61,10 @@ class WriteBuffer(io.RawIOBase):
 		file_doc.content_type = mime or "application/octet-stream"
 		file_doc.insert()
 
-		config = frappe.conf.get("cloud_storage_settings", {})
-		if not config or config.get("use_local"):
-			# save_file_on_filesystem reads _content, not content.
-			file_doc._content = content
-			file_doc.save_file_on_filesystem()
-			file_doc.db_set("file_url", file_doc.file_url)
-			file_doc.db_set("file_size", len(content))
-		else:
+		if paths.is_cloud_storage_enabled():
 			paths.upload_via_webdav(file_doc, content, file_doc.content_type)
+		else:
+			paths.write_local_file(file_doc, content)
 		frappe.db.commit()
 
 
@@ -105,21 +100,10 @@ class OverwriteBuffer(io.RawIOBase):
 		file_doc.content_type = content_type
 		file_doc.flags.cloud_storage = True
 
-		config = frappe.conf.get("cloud_storage_settings", {})
-		if not config or config.get("use_local"):
-			file_doc.content = content
-			file_doc.file_size = len(content)
-			# Clear the existing file_url (likely an S3 retrieve URL) so
-			# save_file_on_filesystem's validate doesn't reject it.
-			# Also assign _content — that's what the method actually reads.
-			file_doc.file_url = None
-			file_doc._content = content
-			file_doc.save_file_on_filesystem()
-			file_doc.db_set("file_url", file_doc.file_url)
-			file_doc.db_set("file_size", len(content))
-			file_doc.db_set("content_hash", content_hash)
-		else:
+		if paths.is_cloud_storage_enabled():
 			paths.upload_via_webdav(file_doc, content, content_type)
+		else:
+			paths.write_local_file(file_doc, content, content_hash)
 		frappe.db.commit()
 
 

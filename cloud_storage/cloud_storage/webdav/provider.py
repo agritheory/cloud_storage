@@ -33,6 +33,7 @@ from cloud_storage.cloud_storage.webdav.permissions import (
 	can_write_folder,
 	folder_display_name,
 	folder_parent as frappe_folder_parent,
+	resolve_folder,
 )
 
 
@@ -54,21 +55,16 @@ MOUNT_PREFIX = "/dav"
 logger = frappe.logger("webdav", allow_site=False)
 
 
-def is_cloud_storage_enabled() -> bool:
-	config = frappe.conf.get("cloud_storage_settings", {})
-	return bool(config and not config.get("use_local"))
-
-
 def detach_local_file_before_delete(file_doc) -> None:
 	"""Delete a transient File doc without deleting the shared local payload."""
-	if is_cloud_storage_enabled() or file_doc.s3_key:
+	if paths.is_cloud_storage_enabled() or file_doc.s3_key:
 		return
 	file_doc.file_url = None
 	file_doc.db_set("file_url", None)
 
 
 def backup_s3_object(key: str | None) -> tuple[Any, str, str] | None:
-	if not key or not is_cloud_storage_enabled():
+	if not key or not paths.is_cloud_storage_enabled():
 		return None
 	client = get_cloud_storage_client()
 	backup_key = f"{key}.webdav-overwrite-backup-{uuid.uuid4().hex}"
@@ -243,13 +239,7 @@ class FrappeCollection(DAVCollection):
 			raise DAVError(HTTP_FORBIDDEN, str(e))
 
 	def delete(self):
-		parent = frappe_folder_parent(self.frappe_folder)
-		display_name = folder_display_name(self.frappe_folder)
-		folder_name = frappe.db.get_value(
-			"File",
-			{"folder": parent, "file_name": display_name, "is_folder": 1},
-			"name",
-		)
+		folder_name = resolve_folder(self.frappe_folder)
 		if not folder_name:
 			raise DAVError(HTTP_NOT_FOUND)
 		if not can(folder_name, "delete"):
@@ -272,13 +262,7 @@ class FrappeCollection(DAVCollection):
 		# deletes an existing destination before calling move_recursive().
 		if self.frappe_folder in SYSTEM_FOLDERS:
 			raise DAVError(HTTP_FORBIDDEN, "cannot move system folders")
-		parent = frappe_folder_parent(self.frappe_folder)
-		display = folder_display_name(self.frappe_folder)
-		folder_name = frappe.db.get_value(
-			"File",
-			{"folder": parent, "file_name": display, "is_folder": 1},
-			"name",
-		)
+		folder_name = resolve_folder(self.frappe_folder)
 		if not folder_name or not can(folder_name, "write"):
 			raise DAVError(HTTP_FORBIDDEN)
 		new_parent, _ = parse_dest(dest_path)
@@ -299,11 +283,7 @@ class FrappeCollection(DAVCollection):
 
 		parent = frappe_folder_parent(self.frappe_folder)
 		display = folder_display_name(self.frappe_folder)
-		folder_name = frappe.db.get_value(
-			"File",
-			{"folder": parent, "file_name": display, "is_folder": 1},
-			"name",
-		)
+		folder_name = resolve_folder(self.frappe_folder)
 		if not folder_name:
 			raise DAVError(HTTP_NOT_FOUND)
 		if not can(folder_name, "write"):

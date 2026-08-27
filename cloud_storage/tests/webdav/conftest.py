@@ -70,11 +70,6 @@ def dav_before_request():
 
 
 @pytest.fixture
-def force_local_storage(local_storage):
-	pass
-
-
-@pytest.fixture
 def track_files():
 	"""Register File docs for teardown cleanup that runs even on assertion failure."""
 	created = []

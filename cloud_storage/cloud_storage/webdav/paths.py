@@ -19,6 +19,22 @@ from cloud_storage.cloud_storage.overrides.file import (
 WEBDAV_PREFIX = "webdav"
 
 
+def is_cloud_storage_enabled() -> bool:
+	config = frappe.conf.get("cloud_storage_settings", {})
+	return bool(config and not config.get("use_local"))
+
+
+def write_local_file(doc, content: bytes, content_hash: str | None = None) -> None:
+	# save_file_on_filesystem reads _content (not content) and rejects a pre-set file_url.
+	doc.file_url = None
+	doc._content = content
+	doc.save_file_on_filesystem()
+	doc.db_set("file_url", doc.file_url)
+	doc.db_set("file_size", len(content))
+	if content_hash:
+		doc.db_set("content_hash", content_hash)
+
+
 def default_webdav_path(file: File, folder: str | None) -> str:
 	"""Per-doc S3 key with a URL-safe filename component."""
 	parts = [folder, WEBDAV_PREFIX, file.name, quote(file.file_name, safe="")]
@@ -90,23 +106,14 @@ def replace_existing_via_webdav(existing_doc: File, source_doc: File) -> File:
 	if source_hash:
 		existing_doc.content_hash = source_hash
 
-	config = frappe.conf.get("cloud_storage_settings", {})
-	if not config or config.get("use_local"):
+	if not is_cloud_storage_enabled():
 		content = source_doc.get_content()
 		if isinstance(content, str):
 			content = content.encode()
 		source_hash = source_hash or get_content_hash(content)
 
-		existing_doc.content = content
 		existing_doc.content_hash = source_hash
-		existing_doc.file_size = len(content)
-		# Clear the existing S3 URL so the local filesystem writer can validate.
-		existing_doc.file_url = None
-		existing_doc._content = content
-		existing_doc.save_file_on_filesystem()
-		existing_doc.db_set("file_url", existing_doc.file_url)
-		existing_doc.db_set("file_size", len(content))
-		existing_doc.db_set("content_hash", source_hash)
+		write_local_file(existing_doc, content, source_hash)
 		existing_doc.add_file_version(source_hash)
 		return existing_doc
 

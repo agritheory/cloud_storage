@@ -9,7 +9,7 @@ from cloud_storage.tests.fixtures import OTHER_USER, SHARED_VIEWER
 from cloud_storage.tests.webdav.helpers import dav_move, file_name_at, make_file, put_file
 
 
-pytestmark = pytest.mark.usefixtures("force_local_storage")
+pytestmark = pytest.mark.usefixtures("local_storage")
 
 
 def test_propfind_hides_unshared_private_file(dav_request, track_files):

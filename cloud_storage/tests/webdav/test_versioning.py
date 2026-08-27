@@ -14,7 +14,7 @@ from cloud_storage.tests.webdav.helpers import (
 )
 
 
-pytestmark = pytest.mark.usefixtures("force_local_storage")
+pytestmark = pytest.mark.usefixtures("local_storage")
 
 
 def test_put_overwrite_preserves_doc_identity_and_updates_content(dav_request, track_files):
