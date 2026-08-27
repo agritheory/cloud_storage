@@ -748,7 +748,11 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 
 
 def admit_and_enqueue_replication(file: File, local_path: str) -> None:
-	previous_local_path = admit_local_cache_record(file, local_path)
+	try:
+		previous_local_path = admit_local_cache_record(file, local_path)
+	except Exception:
+		frappe.log_error()
+		raise
 	if previous_local_path and os.path.exists(previous_local_path):
 		os.remove(previous_local_path)
 	enqueue_replication(file.name)

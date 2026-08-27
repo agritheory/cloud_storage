@@ -11,6 +11,7 @@ from botocore.exceptions import ClientError
 
 from cloud_storage.cloud_storage.local_cache import (
 	admit_local_cache_record,
+	delete_cache_record,
 	get_connection,
 	get_local_cache_path,
 	write_local_cache_bytes,
@@ -63,6 +64,59 @@ def test_duplicate_content_shares_cache_entry(mocked_s3_client):
 		.fetchall()
 	)
 	assert len(rows) == 1
+
+
+def test_shared_local_path_survives_delete_of_one_reference(mocked_s3_client):
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	):
+		content = b"same bytes referenced by two separate cache rows"
+		file1 = create_attached_upload(content, file_name="shared1.bin")
+
+	cache1 = get_cache(file1.name)
+	shared_path = cache1.local_path
+
+	conn = get_connection()
+	conn.execute(
+		"INSERT INTO local_file_cache (file, local_path, file_size, s3_key, content_hash, accessed_at, creation) "
+		"VALUES (?, ?, ?, ?, ?, ?, ?)",
+		(
+			"shared-reference-fixture",
+			shared_path,
+			cache1.file_size,
+			"some/other/key",
+			cache1.content_hash,
+			"2026-01-01 00:00:00",
+			"2026-01-01 00:00:00",
+		),
+	)
+
+	try:
+		delete_cache_record(file1.name)
+
+		assert os.path.exists(shared_path)
+		assert get_cache("shared-reference-fixture")
+	finally:
+		conn.execute("DELETE FROM local_file_cache WHERE file = ?", ("shared-reference-fixture",))
+		if os.path.exists(shared_path):
+			os.remove(shared_path)
+
+
+def test_admission_failure_after_commit_logs_error(mocked_s3_client):
+	before = frappe.db.count("Error Log")
+
+	with patch(
+		"cloud_storage.cloud_storage.overrides.file.get_cloud_storage_client",
+		return_value=mocked_s3_client,
+	), failing_sql("INSERT INTO local_file_cache"):
+		with pytest.raises(Exception, match="boom"):
+			create_attached_upload(
+				b"admission fails after commit", file_name="admission_after_commit_fail.bin"
+			)
+
+	after = frappe.db.count("Error Log")
+	assert after > before
 
 
 def test_cache_disabled_preserves_current_behavior(mocked_s3_client):

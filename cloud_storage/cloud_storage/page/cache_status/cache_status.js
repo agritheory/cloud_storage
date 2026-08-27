@@ -97,7 +97,7 @@ function render_health(health) {
 				<dt>Consecutive failures</dt><dd>${health.consecutive_failures ?? '-'}</dd>
 				<dt>Degraded since</dt><dd>${format_datetime(health.degraded_since)}</dd>
 				<dt>Last check</dt><dd>${format_datetime(health.last_check_at)}</dd>
-				<dt>Last error</dt><dd>${health.last_error || '-'}</dd>
+				<dt>Last error</dt><dd>${health.last_error ? frappe.utils.escape_html(health.last_error) : '-'}</dd>
 			</dl>
 		</div>
 	`
@@ -133,7 +133,7 @@ function render_recent(recent) {
 		.map(
 			row => `
 				<tr>
-					<td><a href="${frappe.utils.get_form_link('File', row.file)}" target="_blank" rel="noopener">${row.file}</a></td>
+					<td><a href="${frappe.utils.get_form_link('File', row.file)}" target="_blank" rel="noopener">${frappe.utils.escape_html(row.file)}</a></td>
 					<td>${format_bytes(row.file_size)}</td>
 					<td>${row.replicated ? 'Yes' : 'No'}</td>
 					<td>${row.pending_delete ? 'Yes' : 'No'}</td>

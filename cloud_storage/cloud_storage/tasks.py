@@ -20,6 +20,7 @@ from cloud_storage.cloud_storage.local_cache import (
 	iso,
 	is_cloud_storage_degraded,
 	is_local_cache_enabled,
+	is_local_path_shared,
 	read_cache_bytes,
 	row_to_record,
 	update_health,
@@ -200,7 +201,7 @@ def reconcile_local_cache():
 		if not frappe.db.exists("File", file_name):
 			# admission raced ahead of a MariaDB commit that never happened (e.g. a rolled-back
 			# request) - the row and its bytes reference a File that was never actually created.
-			if local_path and os.path.exists(local_path):
+			if local_path and os.path.exists(local_path) and not is_local_path_shared(conn, local_path, cache_id):
 				os.remove(local_path)
 			conn.execute("DELETE FROM local_file_cache WHERE id=?", (cache_id,))
 			continue

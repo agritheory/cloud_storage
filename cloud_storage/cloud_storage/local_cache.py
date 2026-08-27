@@ -272,6 +272,16 @@ def is_emergency_ceiling_unrecoverable(incoming_bytes: int = 0) -> bool:
 	return get_unevictable_bytes_total() + incoming_bytes > get_emergency_cache_size_bytes()
 
 
+def is_local_path_shared(conn: sqlite3.Connection, local_path: str, exclude_id: int) -> bool:
+	"""True if another live row still points at the same content-addressed path -
+	several File docs can share one content_hash (the same bytes attached in two places)."""
+	row = conn.execute(
+		"SELECT 1 FROM local_file_cache WHERE local_path = ? AND id != ? AND evicted = 0 AND pending_delete = 0",
+		(local_path, exclude_id),
+	).fetchone()
+	return row is not None
+
+
 def evict_candidates(filters: dict, target_bytes: int, current_total: int) -> int:
 	"""Evict oldest-accessed matches until current_total <= target_bytes. Returns the new total."""
 	conn = get_connection()
@@ -283,7 +293,7 @@ def evict_candidates(filters: dict, target_bytes: int, current_total: int) -> in
 	for cache_id, file_size, local_path in cursor.fetchall():
 		if current_total <= target_bytes:
 			break
-		if local_path and os.path.exists(local_path):
+		if local_path and os.path.exists(local_path) and not is_local_path_shared(conn, local_path, cache_id):
 			os.remove(local_path)
 		conn.execute(
 			"UPDATE local_file_cache SET evicted=1, evicted_at=? WHERE id=?",
@@ -343,12 +353,12 @@ def enqueue_replication(local_file_cache_name) -> None:
 
 def delete_cache_record(file_name: str) -> None:
 	conn = get_connection()
-	cursor = conn.execute("SELECT local_path FROM local_file_cache WHERE file = ?", (file_name,))
+	cursor = conn.execute("SELECT id, local_path FROM local_file_cache WHERE file = ?", (file_name,))
 	row = cursor.fetchone()
 	if not row:
 		return
-	local_path = row[0]
-	if local_path and os.path.exists(local_path):
+	cache_id, local_path = row
+	if local_path and os.path.exists(local_path) and not is_local_path_shared(conn, local_path, cache_id):
 		os.remove(local_path)
 	conn.execute("DELETE FROM local_file_cache WHERE file = ?", (file_name,))
 
@@ -361,7 +371,7 @@ def tombstone_cache_record(file: File) -> None:
 	row = cursor.fetchone()
 	if row:
 		cache_id, local_path = row
-		if local_path and os.path.exists(local_path):
+		if local_path and os.path.exists(local_path) and not is_local_path_shared(conn, local_path, cache_id):
 			os.remove(local_path)
 		conn.execute("UPDATE local_file_cache SET pending_delete=1 WHERE id=?", (cache_id,))
 	else:
