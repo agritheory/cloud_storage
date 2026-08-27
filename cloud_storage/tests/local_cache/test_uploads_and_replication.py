@@ -16,7 +16,10 @@ from cloud_storage.cloud_storage.local_cache import (
 	get_local_cache_path,
 	write_local_cache_bytes,
 )
-from cloud_storage.cloud_storage.overrides.file import admit_and_enqueue_replication, validate_config
+from cloud_storage.cloud_storage.overrides.file import (
+	admit_and_enqueue_replication,
+	validate_config,
+)
 from cloud_storage.cloud_storage.tasks import replicate_cached_file
 from cloud_storage.migration import migrate_files
 

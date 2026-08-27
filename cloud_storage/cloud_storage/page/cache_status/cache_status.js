@@ -133,7 +133,9 @@ function render_recent(recent) {
 		.map(
 			row => `
 				<tr>
-					<td><a href="${frappe.utils.get_form_link('File', row.file)}" target="_blank" rel="noopener">${frappe.utils.escape_html(row.file)}</a></td>
+					<td><a href="${frappe.utils.get_form_link('File', row.file)}" target="_blank" rel="noopener">${frappe.utils.escape_html(
+						row.file
+					)}</a></td>
 					<td>${format_bytes(row.file_size)}</td>
 					<td>${row.replicated ? 'Yes' : 'No'}</td>
 					<td>${row.pending_delete ? 'Yes' : 'No'}</td>

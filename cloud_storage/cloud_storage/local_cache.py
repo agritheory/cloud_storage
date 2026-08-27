@@ -272,12 +272,16 @@ def is_emergency_ceiling_unrecoverable(incoming_bytes: int = 0) -> bool:
 	return get_unevictable_bytes_total() + incoming_bytes > get_emergency_cache_size_bytes()
 
 
-def is_local_path_shared(conn: sqlite3.Connection, local_path: str, exclude_id: int | None = None) -> bool:
+def is_local_path_shared(
+	conn: sqlite3.Connection, local_path: str, exclude_id: int | None = None
+) -> bool:
 	"""True if a live row still points at this content-addressed path - several File docs
 	can share one content_hash (the same bytes attached in two places). `exclude_id` leaves
 	out the row being deleted itself; omit it to ask "does anything at all still need this path".
 	"""
-	query = "SELECT 1 FROM local_file_cache WHERE local_path = ? AND evicted = 0 AND pending_delete = 0"
+	query = (
+		"SELECT 1 FROM local_file_cache WHERE local_path = ? AND evicted = 0 AND pending_delete = 0"
+	)
 	params = [local_path]
 	if exclude_id is not None:
 		query += " AND id != ?"
@@ -296,7 +300,11 @@ def evict_candidates(filters: dict, target_bytes: int, current_total: int) -> in
 	for cache_id, file_size, local_path in cursor.fetchall():
 		if current_total <= target_bytes:
 			break
-		if local_path and os.path.exists(local_path) and not is_local_path_shared(conn, local_path, cache_id):
+		if (
+			local_path
+			and os.path.exists(local_path)
+			and not is_local_path_shared(conn, local_path, cache_id)
+		):
 			os.remove(local_path)
 		conn.execute(
 			"UPDATE local_file_cache SET evicted=1, evicted_at=? WHERE id=?",
@@ -361,7 +369,11 @@ def delete_cache_record(file_name: str) -> None:
 	if not row:
 		return
 	cache_id, local_path = row
-	if local_path and os.path.exists(local_path) and not is_local_path_shared(conn, local_path, cache_id):
+	if (
+		local_path
+		and os.path.exists(local_path)
+		and not is_local_path_shared(conn, local_path, cache_id)
+	):
 		os.remove(local_path)
 	conn.execute("DELETE FROM local_file_cache WHERE file = ?", (file_name,))
 
@@ -374,7 +386,11 @@ def tombstone_cache_record(file: File) -> None:
 	row = cursor.fetchone()
 	if row:
 		cache_id, local_path = row
-		if local_path and os.path.exists(local_path) and not is_local_path_shared(conn, local_path, cache_id):
+		if (
+			local_path
+			and os.path.exists(local_path)
+			and not is_local_path_shared(conn, local_path, cache_id)
+		):
 			os.remove(local_path)
 		conn.execute("UPDATE local_file_cache SET pending_delete=1 WHERE id=?", (cache_id,))
 	else:

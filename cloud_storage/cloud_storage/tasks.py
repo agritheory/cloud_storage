@@ -201,7 +201,11 @@ def reconcile_local_cache():
 		if not frappe.db.exists("File", file_name):
 			# admission raced ahead of a MariaDB commit that never happened (e.g. a rolled-back
 			# request) - the row and its bytes reference a File that was never actually created.
-			if local_path and os.path.exists(local_path) and not is_local_path_shared(conn, local_path, cache_id):
+			if (
+				local_path
+				and os.path.exists(local_path)
+				and not is_local_path_shared(conn, local_path, cache_id)
+			):
 				os.remove(local_path)
 			conn.execute("DELETE FROM local_file_cache WHERE id=?", (cache_id,))
 			continue
