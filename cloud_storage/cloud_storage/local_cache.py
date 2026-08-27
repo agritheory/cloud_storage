@@ -282,7 +282,7 @@ def is_local_path_shared(
 	query = (
 		"SELECT 1 FROM local_file_cache WHERE local_path = ? AND evicted = 0 AND pending_delete = 0"
 	)
-	params = [local_path]
+	params: list[str | int] = [local_path]
 	if exclude_id is not None:
 		query += " AND id != ?"
 		params.append(exclude_id)
