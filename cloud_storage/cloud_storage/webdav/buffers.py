@@ -13,19 +13,11 @@ from cloud_storage.cloud_storage.webdav import memory as os_file_store
 from cloud_storage.cloud_storage.webdav import paths
 
 
-class WriteBuffer(io.RawIOBase):
-	"""Accumulates PUT body; on close inserts a File doc and uploads content.
+class Buffer(io.RawIOBase):
+	"""Accumulates a PUT body in memory; the subclass persists it on close()."""
 
-	Finder's two-step upload sends PUT Content-Length:0 first (to claim the
-	path), then LOCK, then a second PUT with real content. An empty body
-	creates a placeholder doc so the LOCK handler can find the resource.
-	"""
-
-	def __init__(self, file_name: str, frappe_folder: str, content_type: str | None) -> None:
+	def __init__(self) -> None:
 		self._buf = io.BytesIO()
-		self._file_name = file_name
-		self._frappe_folder = frappe_folder
-		self._content_type = content_type
 
 	def write(self, data: Any) -> int:
 		return self._buf.write(data)
@@ -34,12 +26,30 @@ class WriteBuffer(io.RawIOBase):
 		if not self.closed:
 			super().close()
 			try:
-				self.commit()
+				self.persist()
 			except Exception:
-				frappe.log_error("WebDAV upload error", frappe.get_traceback())
+				frappe.log_error("WebDAV buffer error", frappe.get_traceback())
 				raise
 
-	def commit(self) -> None:
+	def persist(self) -> None:
+		raise NotImplementedError
+
+
+class WriteBuffer(Buffer):
+	"""Accumulates PUT body; on close inserts a File doc and uploads content.
+
+	Finder's two-step upload sends PUT Content-Length:0 first (to claim the
+	path), then LOCK, then a second PUT with real content. An empty body
+	creates a placeholder doc so the LOCK handler can find the resource.
+	"""
+
+	def __init__(self, file_name: str, frappe_folder: str, content_type: str | None) -> None:
+		super().__init__()
+		self._file_name = file_name
+		self._frappe_folder = frappe_folder
+		self._content_type = content_type
+
+	def persist(self) -> None:
 		content = self._buf.getvalue()
 
 		file_doc = frappe.new_doc("File")
@@ -68,26 +78,14 @@ class WriteBuffer(io.RawIOBase):
 		frappe.db.commit()
 
 
-class OverwriteBuffer(io.RawIOBase):
+class OverwriteBuffer(Buffer):
 	"""Accumulates PUT body for an existing resource; on close re-uploads content in place."""
 
 	def __init__(self, doc_name: str) -> None:
-		self._buf = io.BytesIO()
+		super().__init__()
 		self._doc_name = doc_name
 
-	def write(self, data: Any) -> int:
-		return self._buf.write(data)
-
-	def close(self) -> None:
-		if not self.closed:
-			super().close()
-			try:
-				self.commit()
-			except Exception:
-				frappe.log_error("WebDAV overwrite error", frappe.get_traceback())
-				raise
-
-	def commit(self) -> None:
+	def persist(self) -> None:
 		content = self._buf.getvalue()
 		if not content:
 			return
@@ -107,17 +105,12 @@ class OverwriteBuffer(io.RawIOBase):
 		frappe.db.commit()
 
 
-class MemoryBuffer(io.RawIOBase):
+class MemoryBuffer(Buffer):
 	"""Write buffer that stashes content in the Redis-backed OS metadata store."""
 
 	def __init__(self, path: str) -> None:
-		self._buf = io.BytesIO()
+		super().__init__()
 		self._path = path
 
-	def write(self, data: Any) -> int:
-		return self._buf.write(data)
-
-	def close(self) -> None:
-		if not self.closed:
-			super().close()
-			os_file_store.set(self._path, self._buf.getvalue())
+	def persist(self) -> None:
+		os_file_store.set(self._path, self._buf.getvalue())

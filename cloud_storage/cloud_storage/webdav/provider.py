@@ -41,6 +41,19 @@ SYSTEM_FOLDERS = {"Home", "Home/Attachments"}
 OS_FILES = frozenset({".DS_Store", "desktop.ini", "Thumbs.db", ".Trashes", ".Spotlight-V100"})
 OS_PREFIXES = ("._",)
 TEMP_PREFIXES = (".sb-",)
+MOUNT_PREFIX = "/dav"
+FILE_FIELDS = [
+	"name",
+	"file_name",
+	"folder",
+	"file_size",
+	"content_hash",
+	"modified",
+	"creation",
+	"s3_key",
+	"is_private",
+	"file_url",
+]
 
 
 def is_os_metadata(name: str) -> bool:
@@ -51,7 +64,6 @@ def is_hidden_from_listing(name: str) -> bool:
 	return is_os_metadata(name) or name.startswith(TEMP_PREFIXES)
 
 
-MOUNT_PREFIX = "/dav"
 logger = frappe.logger("webdav", allow_site=False)
 
 
@@ -130,6 +142,26 @@ def parse_dest(dest_path: str) -> tuple[str, str]:
 	return new_folder, new_name
 
 
+def child_folder_name(parent: str, name: str) -> str | None:
+	match = frappe.get_list(
+		"File",
+		filters={"folder": parent, "file_name": name, "is_folder": 1},
+		pluck="name",
+		limit_page_length=1,
+	)
+	return match[0] if match else None
+
+
+def child_file_row(parent: str, name: str):
+	rows = frappe.get_list(
+		"File",
+		filters={"folder": parent, "file_name": name, "is_folder": 0},
+		fields=FILE_FIELDS,
+		limit_page_length=1,
+	)
+	return rows[0] if rows else None
+
+
 class FrappeCollection(DAVCollection):
 	"""A Frappe File folder exposed as a WebDAV collection."""
 
@@ -186,24 +218,13 @@ class FrappeCollection(DAVCollection):
 				return MemoryFile(child_path, self.environ, name, self.frappe_folder)
 			return None
 
-		folder_match = frappe.get_list(
-			"File",
-			filters={"folder": self.frappe_folder, "file_name": name, "is_folder": 1},
-			pluck="name",
-			limit_page_length=1,
-		)
-		if folder_match:
+		if child_folder_name(self.frappe_folder, name):
 			child_frappe_folder = f"{self.frappe_folder}/{name}"
 			return FrappeCollection(child_path + "/", self.environ, child_frappe_folder)
 
-		file_rows = frappe.get_list(
-			"File",
-			filters={"folder": self.frappe_folder, "file_name": name, "is_folder": 0},
-			fields=FILE_FIELDS,
-			limit_page_length=1,
-		)
-		if file_rows:
-			return FrappeFile(child_path, self.environ, file_rows[0])
+		file_row = child_file_row(self.frappe_folder, name)
+		if file_row:
+			return FrappeFile(child_path, self.environ, file_row)
 
 		return None
 
@@ -348,20 +369,6 @@ class FrappeCollection(DAVCollection):
 
 	def support_recursive_move(self, dest_path: str) -> bool:
 		return True
-
-
-FILE_FIELDS = [
-	"name",
-	"file_name",
-	"folder",
-	"file_size",
-	"content_hash",
-	"modified",
-	"creation",
-	"s3_key",
-	"is_private",
-	"file_url",
-]
 
 
 class MemoryFile(DAVNonCollection):
@@ -754,16 +761,9 @@ class FrappeDAVProvider(DAVProvider):
 
 		frappe_folder = "Home"
 		for part in parts[:-1]:
-			parent = frappe_folder
-			match = frappe.get_list(
-				"File",
-				filters={"folder": parent, "file_name": part, "is_folder": 1},
-				pluck="name",
-				limit_page_length=1,
-			)
-			if not match:
+			if not child_folder_name(frappe_folder, part):
 				return None
-			frappe_folder = f"{parent}/{part}"
+			frappe_folder = f"{frappe_folder}/{part}"
 
 		last = parts[-1]
 
@@ -774,25 +774,14 @@ class FrappeDAVProvider(DAVProvider):
 				return MemoryFile(path, environ, last, frappe_folder)
 			return None
 
-		folder_match = frappe.get_list(
-			"File",
-			filters={"folder": frappe_folder, "file_name": last, "is_folder": 1},
-			pluck="name",
-			limit_page_length=1,
-		)
-		if folder_match:
+		if child_folder_name(frappe_folder, last):
 			child_folder = f"{frappe_folder}/{last}"
 			canonical = path if path.endswith("/") else path + "/"
 			return FrappeCollection(canonical, environ, child_folder)
 
-		file_rows = frappe.get_list(
-			"File",
-			filters={"folder": frappe_folder, "file_name": last, "is_folder": 0},
-			fields=FILE_FIELDS,
-			limit_page_length=1,
-		)
-		if file_rows:
-			return FrappeFile(path, environ, file_rows[0])
+		file_row = child_file_row(frappe_folder, last)
+		if file_row:
+			return FrappeFile(path, environ, file_row)
 
 		return None
 
