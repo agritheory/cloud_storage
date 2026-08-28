@@ -17,7 +17,7 @@ from cloud_storage.cloud_storage.overrides.file import (
 )
 
 
-def _format_bytes(size):
+def format_bytes(size):
 	for unit in ["B", "KB", "MB", "GB", "TB"]:
 		if size < 1024.0:
 			return f"{size:.2f} {unit}"
@@ -132,7 +132,7 @@ def migrate_files(
 					if file_doc.attached_to_doctype
 					else "No attachment"
 				)
-				print(f"📄 {file_doc.name}: {file_doc.file_name} ({_format_bytes(file_size)})")
+				print(f"📄 {file_doc.name}: {file_doc.file_name} ({format_bytes(file_size)})")
 				print(f"   Attached to: {attached_to}")
 				print(f"   Local path: {file_doc.file_url}")
 
@@ -181,7 +181,7 @@ def migrate_files(
 	print(f"Successfully migrated: {stats['migrated']}")
 	print(f"Skipped:               {stats['skipped']}")
 	print(f"Failed:                {stats['failed']}")
-	print(f"Total size:            {_format_bytes(stats['total_size'])}")
+	print(f"Total size:            {format_bytes(stats['total_size'])}")
 
 	if dry_run:
 		print("\nThis was a DRY RUN. Run without --dry-run to perform actual migration.")

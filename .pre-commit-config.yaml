@@ -45,7 +45,7 @@ repos:
         additional_dependencies: ['flake8-bugbear']
 
   - repo: https://github.com/agritheory/test_utils
-    rev: v1.29.0
+    rev: v1.30.0
     hooks:
       - id: update_pre_commit_config
       - id: validate_frappe_project
@@ -61,6 +61,8 @@ repos:
         args: ['--app', 'cloud_storage']
       - id: track_overrides
         args: ['--directory', '.', '--app', 'cloud_storage', '--base-branch', 'version-15']
+      - id: semgrep_fmt
+        args: ['--config=.semgrep.yml', '--disable-version-check', '--skip-unknown-extensions']
 
   - repo: https://github.com/pre-commit/mirrors-prettier
     rev: v3.1.0

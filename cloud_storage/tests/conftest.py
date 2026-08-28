@@ -12,7 +12,7 @@ from frappe.utils import get_bench_path
 from moto import mock_s3
 
 
-def _get_logger(*args, **kwargs):
+def test_logger(*args, **kwargs):
 	from frappe.utils.logger import get_logger
 
 	return get_logger(
@@ -47,7 +47,7 @@ def monkeymodule():
 
 @pytest.fixture(scope="session", autouse=True)
 def db_instance():
-	frappe.logger = _get_logger
+	frappe.logger = test_logger
 
 	sites = Path(get_bench_path()) / "sites"
 	currentsite = "test_site"

@@ -92,3 +92,57 @@ def custom_get_file_path(file: File, folder: str | None = None) -> str:
 If your custom path generator fails, Cloud Storage will:
 1. Log the error to the Error Log
 2. Fall back to the default path generation strategy
+
+## WebDAV Path Generator Hook
+
+Cloud Storage also provides a separate hook for files uploaded through WebDAV.
+
+`cloud_storage_webdav_path_generator`
+
+By default, WebDAV uploads use a per-file document path:
+
+```python
+# Default WebDAV path structure:
+# {folder}/webdav/{file.name}/{file.file_name}
+```
+
+This differs from the standard `cloud_storage_path_generator` hook. Desktop
+clients often save files by writing temporary files and moving them over the
+original file. Including the File document name in the path avoids collisions
+during those operations.
+
+### Configuration
+
+To use a custom WebDAV path generator, add the following to your custom app's
+`hooks.py`:
+
+```python
+# hooks.py
+cloud_storage_webdav_path_generator = "my_custom_app.utils.custom_webdav_path_generator"
+```
+
+### Custom WebDAV Path Generator Function
+
+Your custom function must accept two parameters and return a string path:
+
+```python
+def custom_webdav_path_generator(file, folder=None):
+    """
+    Generate a custom S3 object key for a File document uploaded through WebDAV.
+
+    Args:
+        file (File): The File document instance
+        folder (str|None): Optional base folder from Cloud Storage Settings
+
+    Returns:
+        str: The S3 object key/path
+    """
+    return f"{folder}/webdav/{file.name}/{file.file_name}"
+```
+
+### Error Handling
+
+If your custom WebDAV path generator fails, Cloud Storage will:
+1. Log the error to the Error Log
+2. Fall back to the default WebDAV path generation strategy
+
