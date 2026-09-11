@@ -20,7 +20,12 @@ from boto3.session import Session
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from frappe import DoesNotExistError, _
-from frappe.core.doctype.file.file import FILE_ENCODING_OPTIONS, OLE_FILE_SIGNATURE, File, get_files_path
+from frappe.core.doctype.file.file import (
+	FILE_ENCODING_OPTIONS,
+	OLE_FILE_SIGNATURE,
+	File,
+	get_files_path,
+)
 from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
 from frappe.model.rename_doc import rename_doc
 from frappe.utils import get_datetime, get_url
