@@ -20,7 +20,12 @@ from boto3.session import Session
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from frappe import DoesNotExistError, _
-from frappe.core.doctype.file.file import File, get_files_path
+from frappe.core.doctype.file.file import (
+	FILE_ENCODING_OPTIONS,
+	OLE_FILE_SIGNATURE,
+	File,
+	get_files_path,
+)
 from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
 from frappe.model.rename_doc import rename_doc
 from frappe.utils import get_datetime, get_url
@@ -48,14 +53,21 @@ class CloudStorageFile(File):
 
 	def validate(self) -> None:
 		"""
-		HASH: 69a495579a729909f4df7a45855165eee4a208f4
+		HASH: 0a795fce2d79ff382b94b0dfad846b0b372f7bc2
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
 		"""
-		self.associate_files()
+		if self.is_folder:
+			if self.file_url:
+				frappe.throw(_("A folder cannot have a File URL"))
+			return
+
+		if not self.flags.associating_files:
+			self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
+		self.enforce_public_file_restrictions()
 		if not self.is_remote_file:
 			self.custom_validate()
 		else:
@@ -290,9 +302,9 @@ class CloudStorageFile(File):
 		self.save()
 
 	@frappe.whitelist()
-	def get_content(self) -> bytes:
+	def get_content(self, encodings=None) -> bytes | str:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 0a795fce2d79ff382b94b0dfad846b0b372f7bc2
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: get_content
@@ -300,6 +312,7 @@ class CloudStorageFile(File):
 		if self.is_folder:
 			frappe.throw(_("Cannot get file contents of a Folder"))
 
+		self.validate_file_path()
 		if self.get("content"):
 			self._content = self.content
 			if self.decode:  # type: ignore
@@ -322,24 +335,27 @@ class CloudStorageFile(File):
 				file_path = frappe.get_site_path("public", "files", self.file_name)
 			else:
 				file_path = frappe.get_site_path("private", "files", self.file_name)
+			if encodings is None:
+				encodings = FILE_ENCODING_OPTIONS
 			with open(file_path, mode="rb") as f:
 				self._content = f.read()
-				try:
-					# for plain text files
-					self._content = self._content.decode()
-				except UnicodeDecodeError:
-					# for .png, .jpg, etc
-					pass
+				if not self._content.startswith(OLE_FILE_SIGNATURE):
+					for encoding in encodings:
+						try:
+							self._content = self._content.decode(encoding)
+							break
+						except UnicodeDecodeError:
+							continue
 		return self._content
 
 	def get_full_path(self):
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 0a795fce2d79ff382b94b0dfad846b0b372f7bc2
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: get_full_path
 		"""
-		"""Returns file path from given file name"""
+		"""Return file path using the set file name."""
 
 		file_path = self.file_url or self.file_name
 
