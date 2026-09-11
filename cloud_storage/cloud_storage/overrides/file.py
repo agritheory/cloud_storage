@@ -121,6 +121,7 @@ class CloudStorageFile(File):
 			if associated_doc and associated_doc != self.name:
 				# Extract s3_key from file_url before clearing it; clearing prevents the
 				# delete_file hook from removing the remote object when this duplicate is deleted.
+				original_file_url = self.file_url
 				if "?key=" in (self.file_url or ""):
 					s3_key_from_url = self.file_url.split("?key=")[1]
 				elif "key=" in (self.file_url or ""):
@@ -136,6 +137,9 @@ class CloudStorageFile(File):
 					ignore_permissions=True,
 					# validate=False,
 				)
+				# Restore file_url in memory only (DB stays empty). upload_file returns this
+				# doc; an Attach field reads attachment.file_url, so a blank will leave it empty.
+				self.file_url = original_file_url
 			if associated_doc and not self.s3_key:
 				# Only write s3_key onto the existing file when we extracted a valid key from
 				# this duplicate's URL and the existing file does not already have one.
