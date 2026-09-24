@@ -166,3 +166,53 @@ def test_get_content_rejects_sibling_directory_escape():
 	finally:
 		secret.unlink()
 		shadow_dir.rmdir()
+
+
+def test_duplicate_content_unique_url_resolves_locally():
+	"""Pasting an image whose content already exists must yield a fid that still exists.
+
+	Without cloud storage, /private/files URLs are resolved by
+	frappe.utils.response.download_private_file through
+	find_file_by_url(path, name=fid), so the fid in unique_url has to name the
+	File the duplicate was merged into, not the deleted duplicate itself.
+	"""
+	from urllib.parse import parse_qs, urlsplit
+
+	from frappe.core.doctype.file.utils import find_file_by_url
+	from PIL import Image
+
+	frappe.set_user("Administrator")
+
+	buffer = BytesIO()
+	Image.new("RGB", (5, 3), (211, 47, 12)).save(buffer, format="PNG")
+	content = buffer.getvalue()
+
+	def paste(file_name, attached_to_name):
+		doc = frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": file_name,
+				"attached_to_doctype": "User",
+				"attached_to_name": attached_to_name,
+				"content": content,
+				"decode": False,
+				"is_private": 1,
+			}
+		)
+		doc.save(ignore_permissions=True)
+		return doc
+
+	first = paste("dup-local-first.png", "Administrator")
+	assert frappe.db.exists("File", first.name)
+	assert first.file_url.startswith("/private/files/")
+
+	second = paste("dup-local-second.png", "Guest")
+
+	assert second.name == first.name
+	assert second.file_url == first.file_url
+	assert second.unique_url == f"{first.file_url}?fid={first.name}"
+
+	# resolve it the way download_private_file does
+	url = urlsplit(second.unique_url)
+	fid = parse_qs(url.query)["fid"][0]
+	assert find_file_by_url(url.path, name=fid) is not None
