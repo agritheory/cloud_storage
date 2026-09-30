@@ -1,6 +1,6 @@
 [project]
 name = "cloud_storage"
-version = "16.0.0"
+version = "16.0.1"
 description = "Frappe App for integrating with cloud storage applications"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
