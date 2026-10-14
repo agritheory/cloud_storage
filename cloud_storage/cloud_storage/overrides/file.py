@@ -46,9 +46,31 @@ class CloudStorageFile(File):
 			return self.file_url.startswith(URL_PREFIXES)  # type: ignore
 		return not self.content
 
+	@property
+	def unique_url(self) -> str:
+		"""
+		HASH: 69a495579a729909f4df7a45855165eee4a208f4
+		REPO: https://github.com/frappe/frappe
+		PATH: frappe/core/doctype/file/file.py
+		METHOD: unique_url
+
+		Cloud storage file URLs already carry a query string
+		(/api/method/retrieve?key=...), so the fid parameter has to be appended
+		with "&". Core assumes a plain path and always uses "?", which corrupts
+		the key parameter and makes retrieve() return a 404.
+		"""
+		from urllib.parse import urlencode
+
+		file_url = self.file_url or ""
+		if not self.is_private:
+			return file_url
+
+		separator = "&" if "?" in file_url else "?"
+		return file_url + separator + urlencode({"fid": self.name})
+
 	def validate_file_path(self, path=None):
 		"""
-		HASH: 48366c6ecbad44ed24e6d02bdd8f8f189ce58927
+		HASH: e06abda6b3dfea5027ad6b268a6628cd7e9ba408
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate_file_path
@@ -56,6 +78,8 @@ class CloudStorageFile(File):
 		if path is None:
 			if self.is_remote_file:
 				return
+			if self.file_url and ".." in self.file_url.split("/"):
+				frappe.throw(_("The File URL you've entered is incorrect"), title=_("Invalid File URL"))
 			path = self.get_full_path()
 		base_path = os.path.realpath(get_files_path(is_private=self.is_private))
 		resolved_path = os.path.realpath(path)
@@ -64,7 +88,7 @@ class CloudStorageFile(File):
 
 	def validate(self) -> None:
 		"""
-		HASH: ca4a6912ebf7a8dafa9e56822bd304fa38c4da09
+		HASH: e06abda6b3dfea5027ad6b268a6628cd7e9ba408
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
@@ -73,6 +97,8 @@ class CloudStorageFile(File):
 			if self.file_url:
 				frappe.throw(_("A folder cannot have a File URL"))
 			return
+
+		self.enforce_public_file_restrictions()
 
 		# guard against recursion: associate_files() can save another File, re-entering validate
 		if not self.flags.associating_files:
@@ -152,6 +178,9 @@ class CloudStorageFile(File):
 				if s3_key_from_url and not existing_s3_key:
 					frappe.db.set_value("File", associated_doc, "s3_key", s3_key_from_url)
 
+			if associated_doc and associated_doc != self.name:
+				self.point_at_surviving_file(associated_doc)
+
 		elif self.attached_to_doctype and self.attached_to_name and self.file_name:  # type: ignore
 			associated_doc = frappe.db.get_value(
 				"File",
@@ -204,6 +233,22 @@ class CloudStorageFile(File):
 					).insert(ignore_permissions=True)
 
 				frappe.delete_doc("File", self.name, ignore_permissions=True)
+				self.point_at_surviving_file(associated_doc)
+
+	def point_at_surviving_file(self, surviving_name: str) -> None:
+		"""Repoint this document at the file it was just merged into."""
+		surviving = frappe.db.get_value("File", surviving_name, ["file_url", "s3_key"], as_dict=True)
+		if not surviving:
+			return
+
+		merged_name = (self.doctype, self.name)  # type: ignore
+		self.name = surviving_name
+		self.file_url = surviving.file_url
+		self.s3_key = surviving.s3_key
+
+		if merged_name in frappe.flags.currently_saving:
+			frappe.flags.currently_saving.remove(merged_name)
+			frappe.flags.currently_saving.append((self.doctype, self.name))
 
 	def on_trash(self) -> None:
 		"""
