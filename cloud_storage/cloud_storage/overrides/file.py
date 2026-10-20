@@ -10,7 +10,7 @@ import types
 import uuid
 from mimetypes import guess_type
 from pathlib import Path
-from urllib.parse import quote, unquote
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import urlopen
 import tempfile
 
@@ -330,6 +330,22 @@ class CloudStorageFile(File):
 			association.idx = idx
 		self.save()
 
+	def get_s3_key(self) -> str:
+		"""
+		Return the object key for this file.
+
+		Duplicate File records (for example copies made when a file is attached to a
+		Communication) can share the original's `/api/method/retrieve?key=...` URL
+		without an `s3_key`. The URL carries the key, so fall back to it instead of
+		passing `Key=None` to S3.
+		"""
+		if self.s3_key:
+			return self.s3_key
+		key = parse_qs(urlparse(self.file_url or "").query).get("key", [None])[0]
+		if not key:
+			frappe.throw(_("File {0} has no cloud storage key").format(self.name))
+		return key
+
 	@frappe.whitelist()
 	def get_content(self) -> bytes:
 		"""
@@ -355,7 +371,7 @@ class CloudStorageFile(File):
 
 		if self.file_url.startswith("/api/method/retrieve"):
 			client = get_cloud_storage_client()
-			file_object = client.get_object(Bucket=client.bucket, Key=self.s3_key)
+			file_object = client.get_object(Bucket=client.bucket, Key=self.get_s3_key())
 			self._content = file_object.get("Body").read()
 		elif self.file_url.startswith("http://") or self.file_url.startswith("https://"):
 			self._content = urlopen(self.file_url).read()
