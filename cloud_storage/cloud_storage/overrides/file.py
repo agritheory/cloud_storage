@@ -41,7 +41,7 @@ class CloudStorageFile(File):
 	@File.is_remote_file.getter
 	def is_remote_file(self) -> bool:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: is_remote_file
@@ -52,7 +52,7 @@ class CloudStorageFile(File):
 
 	def validate(self) -> None:
 		"""
-		HASH: 0a795fce2d79ff382b94b0dfad846b0b372f7bc2
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
@@ -62,11 +62,21 @@ class CloudStorageFile(File):
 				frappe.throw(_("A folder cannot have a File URL"))
 			return
 
+		# upstream clears client-supplied hashes for remote files; limit this to external URLs
+		# since cloud storage files (/api/method/retrieve) are "remote" but carry server-set hashes
+		if self.file_url and self.file_url.startswith(("http://", "https://")):
+			self.content_hash = None
+
 		if not self.flags.associating_files:
 			self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		self.enforce_public_file_restrictions()
+
+		# must run before handle_is_private_changed, which legitimately rewrites file_url
+		if not self.is_new() and self.has_value_changed("file_url"):
+			self.validate_private_file_access()
+
 		if not self.is_remote_file:
 			self.custom_validate()
 		else:
@@ -112,7 +122,7 @@ class CloudStorageFile(File):
 
 	def after_insert(self) -> File:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: after_insert
@@ -183,7 +193,7 @@ class CloudStorageFile(File):
 
 	def on_trash(self) -> None:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: on_trash
@@ -203,7 +213,7 @@ class CloudStorageFile(File):
 		if len(self.file_association) > 0:
 			return
 		self.validate_empty_folder()
-		self._delete_file_on_disk()
+		frappe.db.after_commit.add(self._delete_file_on_disk)
 		# even though the code is unreachable, we're keeping it here for reference
 		if not self.is_folder and len(self.file_association) > 0:
 			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
@@ -303,7 +313,7 @@ class CloudStorageFile(File):
 	@frappe.whitelist()
 	def get_content(self, encodings=None) -> bytes | str:
 		"""
-		HASH: 0a795fce2d79ff382b94b0dfad846b0b372f7bc2
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: get_content
@@ -349,7 +359,7 @@ class CloudStorageFile(File):
 
 	def get_full_path(self):
 		"""
-		HASH: 0a795fce2d79ff382b94b0dfad846b0b372f7bc2
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: get_full_path
