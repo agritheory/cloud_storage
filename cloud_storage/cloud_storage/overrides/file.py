@@ -149,14 +149,16 @@ class CloudStorageFile(File):
 					ignore_permissions=True,
 					# validate=False,
 				)
-			if associated_doc and not self.s3_key:
-				s3_key = None
-				if "?key=" in self.file_url:
-					s3_key = self.file_url.split("?key=")[1]
-				elif "key=" in self.file_url:
-					s3_key = self.file_url.split("key=")[1].split("&")[0]
-				frappe.db.set_value("File", associated_doc, "s3_key", s3_key)
-				frappe.db.commit()
+			if associated_doc:
+				# backfill from the surviving File's own URL: this File's URL was cleared above,
+				# and when matched by content hash it never pointed at the stored object anyway
+				existing_url, existing_key = frappe.db.get_value(
+					"File", associated_doc, ["file_url", "s3_key"]
+				)
+				if not existing_key and existing_url and "key=" in existing_url:
+					s3_key = existing_url.split("key=")[1].split("&")[0]
+					frappe.db.set_value("File", associated_doc, "s3_key", s3_key)
+					frappe.db.commit()
 		elif self.attached_to_doctype and self.attached_to_name and self.file_name:  # type: ignore
 			associated_doc = frappe.db.get_value(
 				"File",
@@ -241,10 +243,15 @@ class CloudStorageFile(File):
 			existing_file = frappe.get_doc("File", associated_doc)
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
-			existing_file.append(
-				"file_association",
-				add_child_file_association(attached_to_doctype, attached_to_name),
+			already_linked = any(
+				assoc.link_doctype == attached_to_doctype and assoc.link_name == attached_to_name
+				for assoc in existing_file.file_association
 			)
+			if not already_linked:
+				existing_file.append(
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
+				)
 			existing_file.save()
 		else:
 			if self.file_association:
@@ -709,7 +716,11 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 			}
 		)
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
-		file = file_doc
+		file_doc.flags.cloud_storage = True
+		upload_file(file_doc)
+		# record what the key now holds, so after_insert merges the File being inserted into it
+		file_doc.db_set({"content_hash": file.content_hash, "file_size": file.file_size})
+		return file_doc
 
 	file.flags.cloud_storage = True
 	return upload_file(file)
