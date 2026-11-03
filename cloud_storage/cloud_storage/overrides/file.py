@@ -15,7 +15,6 @@ from urllib.request import urlopen
 import tempfile
 
 import frappe
-from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -26,7 +25,7 @@ from frappe.core.doctype.file.file import (
 	File,
 	get_files_path,
 )
-from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
+from frappe.core.doctype.file.utils import decode_file_content, get_content_hash, get_file_name
 from frappe.model.rename_doc import rename_doc
 from frappe.utils import get_datetime, get_url
 from frappe.utils.image import optimize_image, strip_exif_data
@@ -562,24 +561,50 @@ def get_sharing_url(client, key: str) -> str:
 
 def upload_file(file: File) -> File:
 	client = get_cloud_storage_client()
-	path = get_file_path(file, client.folder)
+	# a File already in the bucket keeps its key: the upload is a new version of it
+	path = file.s3_key or get_unique_file_path(file, client.folder)
 	file.db_set("file_url", FILE_URL.format(path=path))
 	content_type = file.content_type or from_buffer(file.content, mime=True)
-	version_id = None
 	try:
 		response = client.put_object(
 			Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type
 		)
-		version_id = response.get("VersionId") or file.content_hash
-		file.associate_files(file.attached_to_doctype, file.attached_to_name)
-	except S3UploadFailedError:
+	except Exception:
+		# a File without its object would serve whatever else is stored under its key
+		frappe.log_error("File Upload Error")
 		frappe.throw(_("File Upload Failed. Please try again."))
-	except Exception as e:
-		frappe.log_error("File Upload Error", e)
+	version_id = response.get("VersionId") or file.content_hash
+	file.associate_files(file.attached_to_doctype, file.attached_to_name)
 	if version_id:
 		file.add_file_version(version_id)
 	file.db_set("s3_key", path)
 	return file
+
+
+def get_unique_file_path(file: File, folder: str | None = None) -> str:
+	"""
+	Return a key for a new upload that no other File uses.
+
+	write_file has already matched any File with the same content, so a taken key means
+	different bytes under the same name: append the end of the content hash, as Frappe
+	does for a name already on disk.
+	"""
+	path = get_file_path(file, folder)
+	if key_in_use(path, file.name):
+		file.file_name = get_file_name(file.file_name, file.content_hash and file.content_hash[-6:])
+		path = get_file_path(file, folder)
+	return path
+
+
+def key_in_use(key: str, file_name: str | None = None) -> bool:
+	return bool(
+		frappe.get_all(
+			"File",
+			filters={"name": ["!=", file_name], "is_folder": 0},
+			or_filters={"s3_key": key, "file_url": FILE_URL.format(path=key)},
+			limit=1,
+		)
+	)
 
 
 def get_file_path(file: File, folder: str | None = None) -> str:
@@ -654,13 +679,18 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 		file_doc.save()
 		return file_doc
 
-	# if a filename-conflict is found, update the existing document with a new version instead
-	existing_file_names = frappe.get_all(
-		"File", filters={"name": ["!=", file.name], "file_name": file.file_name}, pluck="name"
+	if remove_spaces_in_file_name:
+		file.file_name = file.file_name.replace(" ", "_")
+
+	file.file_name = strip_special_chars(file.file_name)
+
+	# if the document already has a file with this name, upload a new version of that file instead
+	existing_file_name = get_same_name_attachment(
+		file.file_name, file.attached_to_doctype, file.attached_to_name, exclude=file.name
 	)
 
-	if existing_file_names:
-		file_doc = frappe.get_doc("File", existing_file_names[0])
+	if existing_file_name:
+		file_doc = frappe.get_doc("File", existing_file_name)
 		file_doc.update(
 			{
 				"content": file.content,
@@ -671,12 +701,48 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
 		file = file_doc
 
-	if remove_spaces_in_file_name:
-		file.file_name = file.file_name.replace(" ", "_")
-
-	file.file_name = strip_special_chars(file.file_name)
 	file.flags.cloud_storage = True
 	return upload_file(file)
+
+
+def get_same_name_attachment(
+	file_name: str,
+	attached_to_doctype: str | None,
+	attached_to_name: str | None,
+	exclude: str | None = None,
+) -> str | None:
+	"""
+	Return the File with this name that is attached to the given document, if any.
+
+	A file of the same name on another document is a different file, not a version of
+	this one: it must not be matched, or the upload replaces that document's attachment.
+	"""
+	if not (attached_to_doctype and attached_to_name):
+		return None
+
+	File = frappe.qb.DocType("File")
+	FileAssociation = frappe.qb.DocType("File Association")
+	associated = (FileAssociation.link_doctype == attached_to_doctype) & (
+		FileAssociation.link_name == attached_to_name
+	)
+	attached = (File.attached_to_doctype == attached_to_doctype) & (
+		File.attached_to_name == attached_to_name
+	)
+	query = (
+		frappe.qb.from_(File)
+		.left_join(FileAssociation)
+		.on(FileAssociation.parent == File.name)
+		.select(File.name)
+		.where(File.file_name == file_name)
+		.where(File.is_folder == 0)
+		.where(associated | attached)
+		.orderby(File.creation)
+		.limit(1)
+	)
+	if exclude:
+		query = query.where(File.name != exclude)
+	result = query.run(pluck=True)
+	return result[0] if result else None
 
 
 @frappe.whitelist()
@@ -714,11 +780,11 @@ def validate_file_content(*args, **kwargs):
 		file: FileStorage = files["file"]
 		content_type = guess_type(file.filename)[0]
 
-		# validate filename
-		file_name = file.filename
-		existing_files_by_name = frappe.get_all(
-			"File", filters={"file_name": file_name}, pluck="file_name"
-		)
+		# validate filename: only a file of the same name on the same document gets a new version
+		file_name = strip_special_chars(file.filename.replace(" ", "_"))
+		existing_files_by_name = []
+		if get_same_name_attachment(file_name, frappe.form_dict.doctype, frappe.form_dict.docname):
+			existing_files_by_name = [file_name]
 
 		# validate content hash
 		file.stream.seek(0)
