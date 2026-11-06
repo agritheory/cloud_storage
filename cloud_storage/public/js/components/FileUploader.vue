@@ -370,6 +370,10 @@ function add_file(file) {
 	xhr.setRequestHeader('X-Frappe-CSRF-Token', frappe.csrf_token)
 	const form_data = new FormData()
 	form_data.append('file', file, file.name)
+	if (props.doctype && props.docname) {
+		form_data.append('doctype', props.doctype)
+		form_data.append('docname', props.docname)
+	}
 	xhr.send(form_data)
 }
 function add_files(file_array) {

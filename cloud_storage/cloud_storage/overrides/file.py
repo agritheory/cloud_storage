@@ -15,7 +15,6 @@ from urllib.request import urlopen
 import tempfile
 
 import frappe
-from boto3.exceptions import S3UploadFailedError
 from boto3.session import Session
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -26,7 +25,7 @@ from frappe.core.doctype.file.file import (
 	File,
 	get_files_path,
 )
-from frappe.core.doctype.file.utils import decode_file_content, get_content_hash
+from frappe.core.doctype.file.utils import decode_file_content, get_content_hash, get_file_name
 from frappe.model.rename_doc import rename_doc
 from frappe.utils import get_datetime, get_url
 from frappe.utils.image import optimize_image, strip_exif_data
@@ -42,7 +41,7 @@ class CloudStorageFile(File):
 	@File.is_remote_file.getter
 	def is_remote_file(self) -> bool:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: is_remote_file
@@ -53,7 +52,7 @@ class CloudStorageFile(File):
 
 	def validate(self) -> None:
 		"""
-		HASH: 0a795fce2d79ff382b94b0dfad846b0b372f7bc2
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: validate
@@ -63,11 +62,21 @@ class CloudStorageFile(File):
 				frappe.throw(_("A folder cannot have a File URL"))
 			return
 
+		# upstream clears client-supplied hashes for remote files; limit this to external URLs
+		# since cloud storage files (/api/method/retrieve) are "remote" but carry server-set hashes
+		if self.file_url and self.file_url.startswith(("http://", "https://")):
+			self.content_hash = None
+
 		if not self.flags.associating_files:
 			self.associate_files()
 		if self.flags.cloud_storage or self.flags.ignore_file_validate:
 			return
 		self.enforce_public_file_restrictions()
+
+		# must run before handle_is_private_changed, which legitimately rewrites file_url
+		if not self.is_new() and self.has_value_changed("file_url"):
+			self.validate_private_file_access()
+
 		if not self.is_remote_file:
 			self.custom_validate()
 		else:
@@ -113,7 +122,7 @@ class CloudStorageFile(File):
 
 	def after_insert(self) -> File:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: after_insert
@@ -140,14 +149,16 @@ class CloudStorageFile(File):
 					ignore_permissions=True,
 					# validate=False,
 				)
-			if associated_doc and not self.s3_key:
-				s3_key = None
-				if "?key=" in self.file_url:
-					s3_key = self.file_url.split("?key=")[1]
-				elif "key=" in self.file_url:
-					s3_key = self.file_url.split("key=")[1].split("&")[0]
-				frappe.db.set_value("File", associated_doc, "s3_key", s3_key)
-				frappe.db.commit()
+			if associated_doc:
+				# backfill from the surviving File's own URL: this File's URL was cleared above,
+				# and when matched by content hash it never pointed at the stored object anyway
+				existing_url, existing_key = frappe.db.get_value(
+					"File", associated_doc, ["file_url", "s3_key"]
+				)
+				if not existing_key and existing_url and "key=" in existing_url:
+					s3_key = existing_url.split("key=")[1].split("&")[0]
+					frappe.db.set_value("File", associated_doc, "s3_key", s3_key)
+					frappe.db.commit()
 		elif self.attached_to_doctype and self.attached_to_name and self.file_name:  # type: ignore
 			associated_doc = frappe.db.get_value(
 				"File",
@@ -184,7 +195,7 @@ class CloudStorageFile(File):
 
 	def on_trash(self) -> None:
 		"""
-		HASH: bfbebb3d3d9c26eb34ed447112fcd46f1dadff00
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: on_trash
@@ -204,7 +215,7 @@ class CloudStorageFile(File):
 		if len(self.file_association) > 0:
 			return
 		self.validate_empty_folder()
-		self._delete_file_on_disk()
+		frappe.db.after_commit.add(self._delete_file_on_disk)
 		# even though the code is unreachable, we're keeping it here for reference
 		if not self.is_folder and len(self.file_association) > 0:
 			self.add_comment_in_reference_doc("Attachment Removed", _("Removed {0}").format(self.file_name))
@@ -232,10 +243,15 @@ class CloudStorageFile(File):
 			existing_file = frappe.get_doc("File", associated_doc)
 			existing_file.attached_to_doctype = attached_to_doctype
 			existing_file.attached_to_name = attached_to_name
-			existing_file.append(
-				"file_association",
-				add_child_file_association(attached_to_doctype, attached_to_name),
+			already_linked = any(
+				assoc.link_doctype == attached_to_doctype and assoc.link_name == attached_to_name
+				for assoc in existing_file.file_association
 			)
+			if not already_linked:
+				existing_file.append(
+					"file_association",
+					add_child_file_association(attached_to_doctype, attached_to_name),
+				)
 			existing_file.save()
 		else:
 			if self.file_association:
@@ -304,7 +320,7 @@ class CloudStorageFile(File):
 	@frappe.whitelist()
 	def get_content(self, encodings=None) -> bytes | str:
 		"""
-		HASH: 0a795fce2d79ff382b94b0dfad846b0b372f7bc2
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: get_content
@@ -350,7 +366,7 @@ class CloudStorageFile(File):
 
 	def get_full_path(self):
 		"""
-		HASH: 0a795fce2d79ff382b94b0dfad846b0b372f7bc2
+		HASH: 1cf7d4fa1df024e36362b7fd8eeadd4e9e7ba998
 		REPO: https://github.com/frappe/frappe
 		PATH: frappe/core/doctype/file/file.py
 		METHOD: get_full_path
@@ -562,24 +578,50 @@ def get_sharing_url(client, key: str) -> str:
 
 def upload_file(file: File) -> File:
 	client = get_cloud_storage_client()
-	path = get_file_path(file, client.folder)
+	# a File already in the bucket keeps its key: the upload is a new version of it
+	path = file.s3_key or get_unique_file_path(file, client.folder)
 	file.db_set("file_url", FILE_URL.format(path=path))
 	content_type = file.content_type or from_buffer(file.content, mime=True)
-	version_id = None
 	try:
 		response = client.put_object(
 			Body=file.content, Bucket=client.bucket, Key=path, ContentType=content_type
 		)
-		version_id = response.get("VersionId") or file.content_hash
-		file.associate_files(file.attached_to_doctype, file.attached_to_name)
-	except S3UploadFailedError:
+	except Exception:
+		# a File without its object would serve whatever else is stored under its key
+		frappe.log_error("File Upload Error")
 		frappe.throw(_("File Upload Failed. Please try again."))
-	except Exception as e:
-		frappe.log_error("File Upload Error", e)
+	version_id = response.get("VersionId") or file.content_hash
+	file.associate_files(file.attached_to_doctype, file.attached_to_name)
 	if version_id:
 		file.add_file_version(version_id)
 	file.db_set("s3_key", path)
 	return file
+
+
+def get_unique_file_path(file: File, folder: str | None = None) -> str:
+	"""
+	Return a key for a new upload that no other File uses.
+
+	write_file has already matched any File with the same content, so a taken key means
+	different bytes under the same name: append the end of the content hash, as Frappe
+	does for a name already on disk.
+	"""
+	path = get_file_path(file, folder)
+	if key_in_use(path, file.name):
+		file.file_name = get_file_name(file.file_name, file.content_hash and file.content_hash[-6:])
+		path = get_file_path(file, folder)
+	return path
+
+
+def key_in_use(key: str, file_name: str | None = None) -> bool:
+	return bool(
+		frappe.get_all(
+			"File",
+			filters={"name": ["!=", file_name], "is_folder": 0},
+			or_filters={"s3_key": key, "file_url": FILE_URL.format(path=key)},
+			limit=1,
+		)
+	)
 
 
 def get_file_path(file: File, folder: str | None = None) -> str:
@@ -654,13 +696,18 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 		file_doc.save()
 		return file_doc
 
-	# if a filename-conflict is found, update the existing document with a new version instead
-	existing_file_names = frappe.get_all(
-		"File", filters={"name": ["!=", file.name], "file_name": file.file_name}, pluck="name"
+	if remove_spaces_in_file_name:
+		file.file_name = file.file_name.replace(" ", "_")
+
+	file.file_name = strip_special_chars(file.file_name)
+
+	# if the document already has a file with this name, upload a new version of that file instead
+	existing_file_name = get_same_name_attachment(
+		file.file_name, file.attached_to_doctype, file.attached_to_name, exclude=file.name
 	)
 
-	if existing_file_names:
-		file_doc = frappe.get_doc("File", existing_file_names[0])
+	if existing_file_name:
+		file_doc = frappe.get_doc("File", existing_file_name)
 		file_doc.update(
 			{
 				"content": file.content,
@@ -669,14 +716,54 @@ def write_file(file: File, remove_spaces_in_file_name: bool = True) -> File:
 			}
 		)
 		file_doc.associate_files(file.attached_to_doctype, file.attached_to_name)
-		file = file_doc
+		file_doc.flags.cloud_storage = True
+		upload_file(file_doc)
+		# record what the key now holds, so after_insert merges the File being inserted into it
+		file_doc.db_set({"content_hash": file.content_hash, "file_size": file.file_size})
+		return file_doc
 
-	if remove_spaces_in_file_name:
-		file.file_name = file.file_name.replace(" ", "_")
-
-	file.file_name = strip_special_chars(file.file_name)
 	file.flags.cloud_storage = True
 	return upload_file(file)
+
+
+def get_same_name_attachment(
+	file_name: str,
+	attached_to_doctype: str | None,
+	attached_to_name: str | None,
+	exclude: str | None = None,
+) -> str | None:
+	"""
+	Return the File with this name that is attached to the given document, if any.
+
+	A file of the same name on another document is a different file, not a version of
+	this one: it must not be matched, or the upload replaces that document's attachment.
+	"""
+	if not (attached_to_doctype and attached_to_name):
+		return None
+
+	File = frappe.qb.DocType("File")
+	FileAssociation = frappe.qb.DocType("File Association")
+	associated = (FileAssociation.link_doctype == attached_to_doctype) & (
+		FileAssociation.link_name == attached_to_name
+	)
+	attached = (File.attached_to_doctype == attached_to_doctype) & (
+		File.attached_to_name == attached_to_name
+	)
+	query = (
+		frappe.qb.from_(File)
+		.left_join(FileAssociation)
+		.on(FileAssociation.parent == File.name)
+		.select(File.name)
+		.where(File.file_name == file_name)
+		.where(File.is_folder == 0)
+		.where(associated | attached)
+		.orderby(File.creation)
+		.limit(1)
+	)
+	if exclude:
+		query = query.where(File.name != exclude)
+	result = query.run(pluck=True)
+	return result[0] if result else None
 
 
 @frappe.whitelist()
@@ -714,11 +801,11 @@ def validate_file_content(*args, **kwargs):
 		file: FileStorage = files["file"]
 		content_type = guess_type(file.filename)[0]
 
-		# validate filename
-		file_name = file.filename
-		existing_files_by_name = frappe.get_all(
-			"File", filters={"file_name": file_name}, pluck="file_name"
-		)
+		# validate filename: only a file of the same name on the same document gets a new version
+		file_name = strip_special_chars(file.filename.replace(" ", "_"))
+		existing_files_by_name = []
+		if get_same_name_attachment(file_name, frappe.form_dict.doctype, frappe.form_dict.docname):
+			existing_files_by_name = [file_name]
 
 		# validate content hash
 		file.stream.seek(0)
